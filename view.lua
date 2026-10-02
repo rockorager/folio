@@ -116,7 +116,7 @@ function M.content(s, actions)
               o.text_editor { key = "draft-" .. d.generation, default_text = d.text, label = "Draft",
                 multiline = true, height = "fill", autofocus = true, focus_request = s.focus,
                 read_only = s.busy or s.pending ~= nil or s.palette ~= nil, text_entry = inserting,
-                caret_color = selecting and "#34352F" or "#A65337", selection_color = "#E8D7BE",
+                caret_color = M.theme.colors.primary, selection_color = "#E8D7BE",
                 caret_shape = inserting and "beam" or "block", caret_blink = false,
                 key_bindings = selecting and M.visual_bindings or (not inserting and M.normal_bindings
                   or { Escape = "collapse_selection" }),

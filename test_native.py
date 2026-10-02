@@ -291,6 +291,9 @@ def session():
                 key("home", control=True)
                 capture("insert")
                 key("escape"); capture("normal")
+                key("g", shift=True); capture("normal-eol")
+                key("o"); key("escape"); capture("normal-empty-line")
+                key("u")
                 key("home", control=True); key("v"); key("j"); capture("visual")
                 selection = editor()["selection"]
                 identity = editor()["id"]

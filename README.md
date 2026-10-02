@@ -16,7 +16,7 @@ zig build -Dvulkan=false -Doptimize=ReleaseFast
 
 Requires Ourokit's modal-editing/caret-shape support (`text_entry`, `caret_shape`,
 and logical-line editing commands), plus `caret_blink`, `Colon`, and
-multiline emergency-wrapping, selection-caret and space-width fallback changes.
+multiline emergency-wrapping, selection-caret and digit-width fallback changes.
 The launcher and Python checks default to
 `../ourokit` and accept `OUROKIT_DIR` to select another compatible checkout.
 No native plugin is required. Open/Save As use the desktop's
@@ -30,9 +30,10 @@ upgrade the native toolkit binary; that requires restarting the application.
 
 The app starts in **Normal** with a block cursor and unbound typing suppressed.
 `i` enters **Insert** with a beam cursor; `Esc` returns to Normal without remounting
-the editor or clearing undo history. **Visual** keeps a distinct charcoal block
-at the active selection end, over the beige selection highlight. Empty-line and
-end-of-line blocks use the font's space width. There is no Replace mode, so no
+the editor or clearing undo history. All modes use the same rust cursor color;
+**Visual** keeps a translucent block at the active selection end, over the beige
+selection highlight. Empty-line and end-of-line blocks use the font's `0` width.
+Double-click selection shows the block before mouse release. There is no Replace mode, so no
 underline mode is shown.
 Carets are steady in all modes. The writing surface has no placeholder,
 keyboard hints, word count, or Open/Save buttons.
