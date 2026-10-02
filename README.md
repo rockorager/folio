@@ -15,8 +15,10 @@ zig build -Dvulkan=false -Doptimize=ReleaseFast
 ```
 
 Requires Ourokit's modal-editing/caret-shape support (`text_entry`, `caret_shape`,
-and logical-line editing commands), plus `caret_blink`, `Colon`, and
-multiline emergency-wrapping, selection-caret and digit-width fallback changes.
+and logical-line editing commands), plus native multi-stroke binding recipes,
+Vim word motions/objects, whole-line selection commands, and the unnamed
+characterwise/linewise register. Older Ourokit
+binaries cannot load these bindings.
 The launcher and Python checks default to
 `../ourokit` and accept `OUROKIT_DIR` to select another compatible checkout.
 No native plugin is required. Open/Save As use the desktop's
@@ -41,20 +43,29 @@ keyboard hints, word count, or Open/Save buttons.
 | Key | Action |
 | --- | --- |
 | `h j k l` | Left, visual line down/up, right |
-| `w` / `e`, `b` | Native next/previous word boundary |
+| `w`, `e`, `b` | Next word start, word's last grapheme, previous word start |
 | `0 $` | Start/end of the hard logical line |
-| `G`, `Ctrl+Home` | End/start of document |
+| `gg`, `G`, `Ctrl+Home` | Start/end/start of document |
+| `{`, `}` | Previous/next paragraph boundary |
 | `a`, `A`, `I` | Insert after one grapheme, at hard line end, at hard line start |
 | `o O` | Open an empty hard line below/above and enter Insert |
 | `x X` | Delete the next/previous grapheme |
+| `dd`, `cc` / `S`, `yy` | Delete/change/yank the current hard line |
+| `D`, `C` | Delete/change through the hard line end |
+| `dw de db`, `cw ce cb`, `yw ye yb` | Delete/change/yank by word motion |
+| `diw ciw yiw`, `daw caw yaw` | Delete/change/yank a word, or a word with adjacent spaces |
+| `dip cip yip`, `dap cap yap` | Delete/change/yank a paragraph, or a paragraph with blank separator lines |
 | `u`, `Ctrl+R` in Normal | Undo/redo |
-| `p` in Normal | Paste the system clipboard at the insertion edge |
+| `p P` in Normal | Put the unnamed register after/before the character, or below/above the hard line |
 | `v` | Enter Visual selection; `v` or `Esc` returns to Normal |
+| `V` | Enter Visual-line; `V` or `Esc` returns to Normal |
+| `j k`, `gg G`, `{ }` in Visual-line | Extend/shrink whole hard lines, independent of wrapping |
 | Motions in Visual | Extend or shrink the native selection |
-| `y` in Visual | Copy selection to the system clipboard |
+| `iw aw`, `ip ap` in Visual | Select an inner/around word or paragraph (`viw`, `vap`, etc.) |
+| `y` in either Visual mode | Yank selection and return to Normal |
 | `d` / `x` in Visual | Delete selection and return to Normal |
 | `c` in Visual | Delete selection and enter Insert |
-| `i` in Visual | Enter Insert; typing replaces the selection |
+| `d` / `x`, `c` in Visual-line | Remove selected lines, or replace them with one blank line and enter Insert |
 | `:` in Normal/Visual | Open the command palette |
 | `Ctrl+S`, `Ctrl+Shift+S` | Save, Save As |
 | `Ctrl+O`, `Ctrl+N`, `Ctrl+Q` | Open, New, Quit |
@@ -72,23 +83,41 @@ Names such as “New document” remain searchable, but there are no Vim splits
 Insert supports normal typing, selection, clipboard, wrapping, scrolling, and IME
 through Ourokit's editor. Long unbroken runs wrap between graphemes without
 inserting newlines into the document. Normal/Visual reject unbound typing and IME entry while
-explicit native edit bindings remain available. Line insertion and subsequent
-typing are separate undo steps. `o`/`O` do not auto-indent.
-These are Vim-inspired bindings over the toolkit's native caret semantics, not
-exact Vim behavior: `w` currently advances to the current/next word's **end**
-(like native Ctrl+Right), not the next word's start. `I` goes to the hard line
-start, not the first nonblank; `p` pastes at the native insertion edge, not after
-the character as in Vim. There are no motion-based operators (`dw`, `cw`, `yw`),
-counts, `gg`, linewise/blockwise selection,
-search, sentence/paragraph text objects, or dot-repeat yet. Supporting those
-properly needs a toolkit editor-command/selection API, not a second text engine.
+explicit native edit bindings remain available. Line insertion/change and subsequent
+typing are separate undo steps. `o`/`O` do not auto-indent. Multi-stroke commands
+have no timeout; Escape cancels a pending prefix. An unmatched key cancels the
+prefix and is interpreted normally. Changing focus, clicking, or rebuilding
+the editor's bindings also cancels a prefix.
+`w` moves to the next word's start; `e` lands on the final grapheme, and `de`/`ce`
+include it. `dw`/`yw` include trailing spaces but stop before the current hard
+newline. `cw` on a word preserves the following spaces, including when the caret
+is already on the word's final character. Word motions and `iw`/`aw` group Unicode
+letters/numbers/underscore separately from punctuation, with spaces, tabs, and LF
+as separators. They preserve combining marks and joined emoji; they do not implement
+configurable `iskeyword` or every Vim Unicode word-class distinction. Insert's
+Ctrl+Arrow behavior is unchanged.
+
+Deletes, changes, and yanks update an app-local unnamed register and also publish
+the text to the system clipboard. `dd`/`cc`/`yy`, paragraph operators, and Visual-line
+operations retain linewise type; ordinary word/character selections are characterwise.
+`p`/`P` use this register even if another app changes the clipboard. It survives
+New/Open, but not quitting. Insert Ctrl+C/X/V continue to use the system clipboard
+without changing the register. Puts are a single undo step.
+
+These remain Vim-inspired bindings over native insertion-edge caret semantics.
+`I` goes to the hard line start, not the first nonblank. Paragraphs are runs of nonempty hard lines; whitespace-only
+lines count as content. `ap` includes following blank lines, or preceding blank
+lines at the end of the document. No counts, general operator grammar beyond the
+listed bindings, blockwise selection, search, sentence objects, named/numbered
+registers, or dot-repeat yet.
 
 Visual currently uses native insertion-edge selection, not Vim's inclusive
-character selection: press `v`, then move to select text. Copy keeps Visual active.
-`Esc`/`v` collapse at the active selection end without moving it. `i` preserves
-the range so typing replaces it. With an empty range, `d`/`x`/`c` delete the next
-grapheme, just like the underlying native delete action. Deletions do not update
-a Vim register; copy explicitly with `y` when you need the text later.
+character selection: press `v`, then move to select text. `Esc`/`v` collapse at
+the active selection end without moving it. `i` and `a` now start text-object
+commands; use `c` to replace a selection. Deleting an empty character selection
+does nothing. Visual-line keeps whole hard lines selected while moving up/down;
+horizontal motions are not active in that mode. Visual put/replacement is not
+implemented; return to Normal to use `p`/`P`.
 
 Files remain plain UTF-8 text (including Markdown source); there is no rendered
 Markdown mode. Opens are limited to 1 MiB and reject NUL/invalid UTF-8. Line endings

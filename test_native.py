@@ -8,6 +8,7 @@ Set FOLIO_CAPTURE_DIR to retain review screenshots of the exercised window.
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -81,6 +82,22 @@ def session():
 
                 def text(value):
                     input_(action="text", text=value)
+
+                def sequence(value):
+                    for part in re.findall(r"[A-Z]|[^A-Z]+", value):
+                        # wtype's text keymap does not model Shift reliably.
+                        # Send uppercase commands through native logical input;
+                        # lowercase commands/typing remain physical fast runs.
+                        if len(part) == 1 and "A" <= part <= "Z":
+                            key(part.lower(), shift=True)
+                        else:
+                            subprocess.run(["wtype", "-s", "100", part], env=env, check=True)
+                            time.sleep(.15)
+
+                def selected():
+                    state = editor()
+                    a, b = state["selection"]["anchor"], state["selection"]["extent"]
+                    return state["value"].encode()[min(a, b):max(a, b)].decode()
 
                 def click(suffix, exits=False):
                     target = next(n["path"] for n in tree()["nodes"]
@@ -162,10 +179,10 @@ def session():
                 assert editor()["value"] == "aXlpha βeta\nsecond line", editor()
                 key("z", control=True)
                 assert editor()["value"] == "alpha βeta\nsecond line", "mode switches must retain undo"
-                # Until the toolkit exposes custom motions, w is native Ctrl+Right:
-                # the current word's trailing insertion edge, not Vim's next start.
+                # Vim w reaches the next word's start; Insert Ctrl+Right below
+                # must retain its different native word-end semantics.
                 key("escape"); key("home", control=True); key("w"); key("i"); text("Y")
-                assert editor()["value"] == "alphaY βeta\nsecond line", editor()
+                assert editor()["value"] == "alpha Yβeta\nsecond line", editor()
                 key("z", control=True)
                 key("escape"); key("g", shift=True); key("b"); key("i"); text("Z")
                 assert editor()["value"] == "alpha βeta\nsecond Zline", editor()
@@ -233,13 +250,13 @@ def session():
                 assert editor()["value"] == "!alpha βeta\nsecond line", editor()
                 key("escape"); key("u"); assert editor()["value"] == before
 
-                key("home", control=True); key("w"); key("l"); key("x")
+                key("home", control=True); key("w"); key("x")
                 assert editor()["value"] == "alpha eta\nsecond line", editor()
                 key("u"); assert editor()["value"] == before
 
                 # Visual motions retain a native anchor, including backwards and
                 # multi-byte selection. Replacing it must use native undo history.
-                key("home", control=True); key("w"); key("l"); key("v"); key("l")
+                key("home", control=True); key("w"); key("v"); key("l")
                 assert any(n["label"] == "VISUAL" for n in tree()["nodes"])
                 assert editor()["selection"]["anchor"] == 6 and editor()["selection"]["extent"] == 8, editor()
                 capture("visual-forward")
@@ -247,10 +264,10 @@ def session():
                 key("escape"); key("g", shift=True); key("p")
                 wait_for(lambda: editor()["value"] == before + "β", "Visual copy / Normal paste failed")
                 key("u"); assert editor()["value"] == before
-                key("home", control=True); key("w"); key("l"); key("v"); key("l")
-                key("i"); text("Z")
+                key("home", control=True); key("w"); key("v"); key("l")
+                key("c"); text("Z")
                 assert editor()["value"] == "alpha Zeta\nsecond line", editor()
-                key("z", control=True)
+                key("z", control=True); key("z", control=True)
                 assert editor()["value"] == before
                 key("escape"); key("g", shift=True); key("v"); key("b")
                 assert editor()["selection"]["anchor"] == len(before.encode()), editor()
@@ -261,12 +278,76 @@ def session():
                 assert editor()["value"] == before
                 assert editor()["selection"]["anchor"] == editor()["selection"]["extent"] == len("alpha βeta\nsecond ".encode()), editor()
                 key("home", control=True); key("v"); key("w"); key("d")
-                assert editor()["value"] == " βeta\nsecond line" and not editor()["text_entry"], editor()
+                assert editor()["value"] == "βeta\nsecond line" and not editor()["text_entry"], editor()
                 key("u"); assert editor()["value"] == before
                 key("home", control=True); key("v"); key("w"); key("c"); text("New")
-                assert editor()["value"] == "New βeta\nsecond line" and editor()["text_entry"], editor()
+                assert editor()["value"] == "Newβeta\nsecond line" and editor()["text_entry"], editor()
                 key("escape"); key("u"); key("u"); assert editor()["value"] == before
                 assert editor()["id"] == identity, "mode changes or native edits remounted the editor"
+
+                # Physical multi-stroke commands, including queued typing after
+                # the mode transition. Unicode word objects use byte-safe ranges.
+                sequence("gglciwnew")
+                assert editor()["value"] == "new βeta\nsecond line" and editor()["text_entry"], editor()
+                key("escape"); key("u")
+                assert editor()["value"] == " βeta\nsecond line", "typing should undo as one group"
+                key("u"); assert editor()["value"] == before
+                sequence("ggwlcawz")
+                assert editor()["value"] == "alphaz\nsecond line", editor()
+                key("escape"); key("u"); key("u"); assert editor()["value"] == before
+                sequence("ggwlviw")
+                assert selected() == "βeta", editor()
+                capture("word-object")
+                key("escape"); sequence("ggdaw")
+                assert editor()["value"] == "βeta\nsecond line", editor()
+                key("u"); sequence("ggdd")
+                assert editor()["value"] == "second line", editor()
+                key("u"); sequence("Gdd")
+                assert editor()["value"] == "alpha βeta", editor()
+                key("u"); sequence("ggccchanged")
+                assert editor()["value"] == "changed\nsecond line" and editor()["text_entry"], editor()
+                key("escape"); key("u"); key("u"); assert editor()["value"] == before
+                sequence("ggyyGp")
+                wait_for(lambda: editor()["value"] == before + "\nalpha βeta", "yy/p did not put below the final hard line")
+                key("u"); sequence("ggde")
+                assert editor()["value"] == " βeta\nsecond line", editor()
+                key("u"); sequence("gglD")
+                assert editor()["value"] == "a\nsecond line", editor()
+                key("u"); sequence("gglCtail")
+                assert editor()["value"] == "atail\nsecond line", editor()
+                key("escape"); key("u"); key("u"); assert editor()["value"] == before
+                sequence("ggd"); key("escape"); sequence("iw")
+                assert editor()["value"] == "w" + before, "Escape failed to cancel the operator prefix"
+                key("escape"); key("u"); assert editor()["value"] == before
+
+                # dw includes spaces, cw doesn't. ce on the last character
+                # includes the next word; cw changes only that last character.
+                sequence("ggdw")
+                assert editor()["value"] == "βeta\nsecond line", editor()
+                sequence("P")
+                assert editor()["value"] == before, "deleted word was not retained in the register"
+                key("u"); key("u")
+                sequence("ggcwnew")
+                assert editor()["value"] == "new βeta\nsecond line", editor()
+                key("escape"); key("u"); key("u")
+                sequence("ggecwz")
+                assert editor()["value"] == "alphz βeta\nsecond line", editor()
+                key("escape"); key("u"); key("u")
+                sequence("ggecez")
+                assert editor()["value"] == "alphz\nsecond line", editor()
+                key("escape"); key("u"); key("u")
+                sequence("ggwywggp")
+                assert editor()["value"] == "aβetalpha βeta\nsecond line", editor()
+                key("u"); sequence("ggyiwP")
+                assert editor()["value"] == "alphaalpha βeta\nsecond line", editor()
+                key("u"); sequence("ggddp")
+                assert editor()["value"] == "second line\nalpha βeta", editor()
+                key("u"); key("u"); sequence("GddP")
+                assert editor()["value"] == "second line\nalpha βeta", editor()
+                key("u"); key("u"); sequence("ggyyP")
+                assert editor()["value"] == "alpha βeta\n" + before, editor()
+                capture("linewise-put")
+                key("u"); assert editor()["value"] == before
 
                 key("n", control=True)
                 assert any(n["label"] == "Unsaved changes" for n in tree()["nodes"])
@@ -276,6 +357,9 @@ def session():
                 assert editor()["value"] == before and editor()["focused"]
                 key("n", control=True); click("/buttons/discard")
                 assert editor()["value"] == "" and not editor()["text_entry"]
+                key("p")
+                assert editor()["value"] == "\nalpha βeta", "New lost the app-scoped linewise register"
+                key("u"); assert editor()["value"] == ""
                 key("o")
                 assert editor()["value"] == "\n" and editor()["text_entry"], editor()
                 key("escape"); key("u")
@@ -322,6 +406,45 @@ def session():
                 assert filename() == "opened.md" and editor()["value"] == "Fresh café\nsecond paragraph"
                 capture("invalid-file")
 
+                paragraphs = "First paragraph.\nAnother hard line.\n\n\nLast paragraph.\nTail"
+                opened.write_text(paragraphs)
+                key("o", control=True)
+                wait_for(lambda: editor()["value"] == paragraphs, "paragraph fixture did not load")
+                sequence("ggvip")
+                assert selected() == "First paragraph.\nAnother hard line.\n", editor()
+                capture("paragraph-object")
+                key("escape"); sequence("ggvap")
+                assert selected() == "First paragraph.\nAnother hard line.\n\n\n", editor()
+                key("escape"); sequence("ggdap")
+                assert editor()["value"] == "Last paragraph.\nTail", editor()
+                key("u"); sequence("ggcipreplacement")
+                assert editor()["value"] == "replacement\n\n\nLast paragraph.\nTail", editor()
+                key("escape"); key("u"); key("u"); assert editor()["value"] == paragraphs
+                sequence("gg}")
+                assert editor()["selection"]["extent"] == len("First paragraph.\nAnother hard line.\n"), editor()
+                sequence("}")
+                assert editor()["selection"]["extent"] == len(paragraphs), editor()
+                sequence("{")
+                assert editor()["selection"]["extent"] == len("First paragraph.\nAnother hard line.\n\n"), editor()
+                sequence("ggjVj")
+                assert selected() == "Another hard line.\n\n", editor()
+                assert any(n["label"] == "VISUAL-LINE" for n in tree()["nodes"])
+                capture("visual-line")
+                sequence("kk")
+                assert selected() == "First paragraph.\nAnother hard line.\n" and editor()["selection"]["extent"] == 0, editor()
+                sequence("j")
+                assert selected() == "Another hard line.\n", editor()
+                sequence("d")
+                assert editor()["value"] == "First paragraph.\n\n\nLast paragraph.\nTail", editor()
+                key("u"); sequence("ggVGcwhole")
+                assert editor()["value"] == "whole" and editor()["text_entry"], editor()
+                key("escape"); key("u"); key("u"); assert editor()["value"] == paragraphs
+                sequence("GVkd")
+                assert editor()["value"] == "First paragraph.\nAnother hard line.\n\n", editor()
+                key("u"); sequence("ggVjyGp")
+                wait_for(lambda: editor()["value"] == paragraphs + "\nFirst paragraph.\nAnother hard line.", "Visual-line yank/put failed")
+                key("u"); assert editor()["value"] == paragraphs
+
                 # Selection must follow graphemes, not UTF-8 bytes or codepoints.
                 graphemes = "A e\u0301 👩‍💻 Z\nShort"
                 opened.write_text(graphemes)
@@ -331,17 +454,17 @@ def session():
                 assert editor()["selection"]["anchor"] == 2 and editor()["selection"]["extent"] == 5, editor()
                 key("h"); key("h")  # Shrink to the anchor, then reverse over the space.
                 assert editor()["selection"]["anchor"] == 2 and editor()["selection"]["extent"] == 1, editor()
-                key("i"); text("X")
+                key("c"); text("X")
                 assert editor()["value"] == "AXe\u0301 👩‍💻 Z\nShort", editor()
-                key("z", control=True)
+                key("z", control=True); key("z", control=True)
                 assert editor()["value"] == graphemes
                 key("escape"); key("home", control=True)
                 for _ in range(4): key("l")
                 key("v"); key("l")
                 assert editor()["selection"]["anchor"] == 6 and editor()["selection"]["extent"] == 17, editor()
-                key("i"); text("Q")
+                key("c"); text("Q")
                 assert editor()["value"] == "A e\u0301 Q Z\nShort", editor()
-                key("z", control=True)
+                key("z", control=True); key("z", control=True)
                 assert editor()["value"] == graphemes
 
                 wrapped = "A wrapped paragraph with words. " * 12
@@ -360,6 +483,15 @@ def session():
                 key("home", control=True); key("j"); key("o", shift=True); text("Before")
                 assert editor()["value"] == "Before\n" + wrapped + "\nTail", "O split a wrapped visual line"
                 key("escape"); key("u"); key("u")
+
+                sequence("ggjV")
+                assert selected() == wrapped + "\n", "Visual-line selected only one wrapped row"
+                sequence("j")
+                assert selected() == wrapped + "\nTail", editor()
+                capture("visual-line-wrapped")
+                sequence("k")
+                assert selected() == wrapped + "\n", editor()
+                key("escape")
 
                 # One hard line with no spaces must have multiple visual rows.
                 # End is a visual motion; $ and O/o remain hard-line commands.
@@ -391,7 +523,7 @@ def session():
                 click("/buttons/save", exits=True)
                 assert process.wait(timeout=10) == 0
                 assert opened.read_bytes() == final.encode(), "Save and Quit lost edits"
-                print("PASS: native modes, motions, Visual selection, graphemes, undo, Normal input guard, New/Cancel/Discard, portal open/save, invalid-file preservation, scrolling, Save and Quit")
+                print("PASS: native modes, Vim word motions/operators, character/linewise registers and puts, Visual selection, graphemes, undo, Normal input guard, New/Cancel/Discard, portal open/save, invalid-file preservation, scrolling, Save and Quit")
             except BaseException:
                 log.seek(0)
                 print(log.read(), file=sys.stderr)

@@ -89,10 +89,11 @@ function actions.editor_key(event)
     s.palette = { query = "", selected = 1 }
   elseif key == "Escape" then s.mode = "normal"
   elseif key == "V" and s.mode ~= "insert" then
-    s.mode = s.mode == "visual" and "normal" or "visual"
+    local mode = event.modifiers and event.modifiers.shift and "visual-line" or "visual"
+    s.mode = s.mode == mode and "normal" or mode
   elseif s.mode == "normal" and (key == "A" or key == "I" or key == "O") then
     s.mode = "insert"
-  elseif s.mode == "visual" then
+  elseif s.mode == "visual" or s.mode == "visual-line" then
     if key == "C" then s.mode = "insert"
     elseif key == "D" or key == "X" then s.mode = "normal" end
   end

@@ -60,6 +60,14 @@ a.palette_edit("unknown"); a.palette_command("submit"); assert(s.palette and not
 a.palette_command("cancel"); assert(not s.palette)
 
 a.editor_key { key = "V" }; assert(s.mode == "visual")
+a.editor_key { key = "V", modifiers = { shift = true } }; assert(s.mode == "visual-line")
+a.editor_key { key = "V", modifiers = { shift = true } }; assert(s.mode == "normal")
+a.editor_key { key = "V", modifiers = { shift = true } }
+a.editor_key { key = "C" }; assert(s.mode == "insert")
+a.editor_key { key = "Escape" }
+a.editor_key { key = "V", modifiers = { shift = true } }
+a.editor_key { key = "D" }; assert(s.mode == "normal")
+a.editor_key { key = "V" }; a.mode("cancel"); assert(s.mode == "normal")
 a.editor_key { key = "Escape" }; assert(s.mode == "normal")
 a.editor_key { key = "O" }; assert(s.mode == "insert")
 a.editor_key { key = "Escape" }; assert(s.mode == "normal")

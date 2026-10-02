@@ -16,30 +16,75 @@ M.theme = {
 
 local motions = {
   H = "visual_left", J = "line_down", K = "line_up", L = "visual_right",
-  W = "word_next", E = "word_next", B = "word_previous",
+  W = "vim_word_start_next", E = "vim_word_end_next", B = "vim_word_start_previous",
   ["0"] = "logical_line_start", ["Shift+4"] = "logical_line_end",
   ["Shift+G"] = "document_end", ["Ctrl+Home"] = "document_start",
+  Brace_Left = "paragraph_previous", ["Shift+Brace_Left"] = "paragraph_previous",
+  Brace_Right = "paragraph_next", ["Shift+Brace_Right"] = "paragraph_next",
   Left = "visual_left", Right = "visual_right", Up = "line_up", Down = "line_down",
   Home = "line_start", End = "line_end",
 }
 M.normal_bindings = {
   inherit = false, I = "submit", V = "collapse_selection", Escape = "collapse_selection",
+  ["Shift+V"] = "select_line",
   A = "move_visual_right", ["Shift+A"] = "move_logical_line_end", ["Shift+I"] = "move_logical_line_start",
   O = "insert_line_below", ["Shift+O"] = "insert_line_above",
-  U = "undo", ["Ctrl+R"] = "redo", X = "delete_forward", ["Shift+X"] = "delete_backward",
-  P = "paste", ["Ctrl+C"] = "copy",
+  U = "undo", ["Ctrl+R"] = "redo",
+  X = { "select_visual_right", "yank", "delete_selection" },
+  ["Shift+X"] = { "select_visual_left", "yank", "delete_selection" },
+  P = "put_after", ["Shift+P"] = "put_before", ["Ctrl+C"] = "copy",
+  ["D D"] = { "select_line", "yank_lines", "delete_lines" },
+  ["C C"] = { "select_line", "yank_lines", "clear_lines", "submit" },
+  ["Y Y"] = { "select_line", "yank_lines", "collapse_selection_start" },
+  ["G G"] = "move_document_start",
+  ["Shift+D"] = { "select_logical_line_end", "yank", "delete_selection" },
+  ["Shift+C"] = { "select_logical_line_end", "yank", "delete_selection", "submit" },
+  ["Shift+S"] = { "select_line", "yank_lines", "clear_lines", "submit" },
+  ["D W"] = { "select_vim_word_forward", "yank", "delete_selection" },
+  ["C W"] = { "select_vim_change_word", "yank", "delete_selection", "submit" },
+  ["Y W"] = { "select_vim_word_forward", "yank", "collapse_selection_start" },
 }
 M.visual_bindings = {
-  inherit = false, I = "submit", V = "collapse_selection", Escape = "collapse_selection",
-  Y = "copy", ["Ctrl+C"] = "copy", D = "delete_forward", X = "delete_forward", C = "delete_forward",
+  inherit = false, V = "collapse_selection", Escape = "collapse_selection",
+  ["Shift+V"] = "select_line", ["G G"] = "select_document_start",
+  Y = { "yank", "collapse_selection_start", "cancel" }, ["Ctrl+C"] = "copy",
+  D = { "yank", "delete_selection" }, X = { "yank", "delete_selection" }, C = { "yank", "delete_selection" },
+}
+M.visual_line_bindings = {
+  inherit = false, V = "collapse_selection", ["Shift+V"] = "collapse_selection", Escape = "collapse_selection",
+  J = "select_lines_down", K = "select_lines_up", Down = "select_lines_down", Up = "select_lines_up",
+  ["G G"] = "select_lines_start", ["Ctrl+Home"] = "select_lines_start", ["Shift+G"] = "select_lines_end",
+  Brace_Left = "select_lines_paragraph_previous", ["Shift+Brace_Left"] = "select_lines_paragraph_previous",
+  Brace_Right = "select_lines_paragraph_next", ["Shift+Brace_Right"] = "select_lines_paragraph_next",
+  Y = { "yank_lines", "collapse_selection_start", "cancel" }, ["Ctrl+C"] = "copy",
+  D = { "yank_lines", "delete_lines" }, X = { "yank_lines", "delete_lines" }, C = { "yank_lines", "clear_lines" },
 }
 for key, destination in pairs(motions) do
   M.normal_bindings[key] = "move_" .. destination
   M.visual_bindings[key] = "select_" .. destination
 end
+for keys, object in pairs {
+  ["I W"] = "vim_word_inner", ["A W"] = "vim_word_around",
+  ["I P"] = "paragraph_inner", ["A P"] = "paragraph_around",
+} do
+  local select = "select_" .. object
+  local paragraph = object:find("paragraph", 1, true)
+  local yank = paragraph and "yank_lines" or "yank"
+  M.visual_bindings[keys] = select
+  M.normal_bindings["D " .. keys] = { select, yank, paragraph and "delete_lines" or "delete_selection" }
+  M.normal_bindings["C " .. keys] = { select, yank, paragraph and "clear_lines" or "delete_selection", "submit" }
+  M.normal_bindings["Y " .. keys] = { select, yank, "collapse_selection_start" }
+end
+for key, destination in pairs { E = "vim_word_end_next", B = "vim_word_start_previous" } do
+  local select = "select_" .. destination
+  M.normal_bindings["D " .. key] = { select, "yank", "delete_selection" }
+  M.normal_bindings["C " .. key] = { select, "yank", "delete_selection", "submit" }
+  M.normal_bindings["Y " .. key] = { select, "yank", "collapse_selection_start" }
+end
 local mode_keys = {
-  normal = { "V", "Escape", "A", "Shift+A", "Shift+I", "O", "Shift+O", "Colon", "Shift+Colon" },
-  visual = { "V", "Escape", "D", "X", "C", "Colon", "Shift+Colon" },
+  normal = { "V", "Shift+V", "Escape", "A", "Shift+A", "Shift+I", "O", "Shift+O", "Colon", "Shift+Colon" },
+  visual = { "V", "Shift+V", "Escape", "D", "X", "C", "Colon", "Shift+Colon" },
+  ["visual-line"] = { "V", "Shift+V", "Escape", "D", "X", "C", "Colon", "Shift+Colon" },
   insert = { "Escape" },
 }
 
@@ -47,7 +92,9 @@ function M.content(s, actions)
   local d = s.doc
   local dirty = document.dirty(d)
   local inserting = s.mode == "insert"
-  local selecting = s.mode == "visual"
+  local bindings = s.mode == "visual-line" and M.visual_line_bindings
+    or s.mode == "visual" and M.visual_bindings
+    or not inserting and M.normal_bindings or { Escape = "collapse_selection" }
   local modal
   if s.pending then
     modal = o.dialog { key = "confirm", label = "Unsaved changes", width = 420,
@@ -118,8 +165,7 @@ function M.content(s, actions)
                 read_only = s.busy or s.pending ~= nil or s.palette ~= nil, text_entry = inserting,
                 caret_color = M.theme.colors.primary, selection_color = "#E8D7BE",
                 caret_shape = inserting and "beam" or "block", caret_blink = false,
-                key_bindings = selecting and M.visual_bindings or (not inserting and M.normal_bindings
-                  or { Escape = "collapse_selection" }),
+                key_bindings = bindings,
                 on_change = actions.edit, on_command = actions.mode,
               },
             },
