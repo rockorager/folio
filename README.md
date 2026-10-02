@@ -83,8 +83,10 @@ Names such as “New document” remain searchable, but there are no Vim splits
 Insert supports normal typing, selection, clipboard, wrapping, scrolling, and IME
 through Ourokit's editor. Long unbroken runs wrap between graphemes without
 inserting newlines into the document. Normal/Visual reject unbound typing and IME entry while
-explicit native edit bindings remain available. Line insertion/change and subsequent
-typing are separate undo steps. `o`/`O` do not auto-indent. Multi-stroke commands
+explicit native edit bindings remain available. Changes (`cw`, `ciw`, `cc`,
+paragraph changes, and Visual `c`) and subsequent typing form one undo step.
+Moving the cursor, leaving Insert, or changing focus ends that group. `o`/`O`
+still use separate undo steps for line insertion and typing, and do not auto-indent. Multi-stroke commands
 have no timeout; Escape cancels a pending prefix. An unmatched key cancels the
 prefix and is interpreted normally. Changing focus, clicking, or rebuilding
 the editor's bindings also cancels a prefix.

@@ -34,21 +34,21 @@ M.normal_bindings = {
   ["Shift+X"] = { "select_visual_left", "yank", "delete_selection" },
   P = "put_after", ["Shift+P"] = "put_before", ["Ctrl+C"] = "copy",
   ["D D"] = { "select_line", "yank_lines", "delete_lines" },
-  ["C C"] = { "select_line", "yank_lines", "clear_lines", "submit" },
+  ["C C"] = { "select_line", "yank_lines", "begin_undo_group", "clear_lines", "submit" },
   ["Y Y"] = { "select_line", "yank_lines", "collapse_selection_start" },
   ["G G"] = "move_document_start",
   ["Shift+D"] = { "select_logical_line_end", "yank", "delete_selection" },
-  ["Shift+C"] = { "select_logical_line_end", "yank", "delete_selection", "submit" },
-  ["Shift+S"] = { "select_line", "yank_lines", "clear_lines", "submit" },
+  ["Shift+C"] = { "select_logical_line_end", "yank", "begin_undo_group", "delete_selection", "submit" },
+  ["Shift+S"] = { "select_line", "yank_lines", "begin_undo_group", "clear_lines", "submit" },
   ["D W"] = { "select_vim_word_forward", "yank", "delete_selection" },
-  ["C W"] = { "select_vim_change_word", "yank", "delete_selection", "submit" },
+  ["C W"] = { "select_vim_change_word", "yank", "begin_undo_group", "delete_selection", "submit" },
   ["Y W"] = { "select_vim_word_forward", "yank", "collapse_selection_start" },
 }
 M.visual_bindings = {
   inherit = false, V = "collapse_selection", Escape = "collapse_selection",
   ["Shift+V"] = "select_line", ["G G"] = "select_document_start",
   Y = { "yank", "collapse_selection_start", "cancel" }, ["Ctrl+C"] = "copy",
-  D = { "yank", "delete_selection" }, X = { "yank", "delete_selection" }, C = { "yank", "delete_selection" },
+  D = { "yank", "delete_selection" }, X = { "yank", "delete_selection" }, C = { "yank", "begin_undo_group", "delete_selection" },
 }
 M.visual_line_bindings = {
   inherit = false, V = "collapse_selection", ["Shift+V"] = "collapse_selection", Escape = "collapse_selection",
@@ -57,7 +57,7 @@ M.visual_line_bindings = {
   Brace_Left = "select_lines_paragraph_previous", ["Shift+Brace_Left"] = "select_lines_paragraph_previous",
   Brace_Right = "select_lines_paragraph_next", ["Shift+Brace_Right"] = "select_lines_paragraph_next",
   Y = { "yank_lines", "collapse_selection_start", "cancel" }, ["Ctrl+C"] = "copy",
-  D = { "yank_lines", "delete_lines" }, X = { "yank_lines", "delete_lines" }, C = { "yank_lines", "clear_lines" },
+  D = { "yank_lines", "delete_lines" }, X = { "yank_lines", "delete_lines" }, C = { "yank_lines", "begin_undo_group", "clear_lines" },
 }
 for key, destination in pairs(motions) do
   M.normal_bindings[key] = "move_" .. destination
@@ -72,13 +72,13 @@ for keys, object in pairs {
   local yank = paragraph and "yank_lines" or "yank"
   M.visual_bindings[keys] = select
   M.normal_bindings["D " .. keys] = { select, yank, paragraph and "delete_lines" or "delete_selection" }
-  M.normal_bindings["C " .. keys] = { select, yank, paragraph and "clear_lines" or "delete_selection", "submit" }
+  M.normal_bindings["C " .. keys] = { select, yank, "begin_undo_group", paragraph and "clear_lines" or "delete_selection", "submit" }
   M.normal_bindings["Y " .. keys] = { select, yank, "collapse_selection_start" }
 end
 for key, destination in pairs { E = "vim_word_end_next", B = "vim_word_start_previous" } do
   local select = "select_" .. destination
   M.normal_bindings["D " .. key] = { select, "yank", "delete_selection" }
-  M.normal_bindings["C " .. key] = { select, "yank", "delete_selection", "submit" }
+  M.normal_bindings["C " .. key] = { select, "yank", "begin_undo_group", "delete_selection", "submit" }
   M.normal_bindings["Y " .. key] = { select, "yank", "collapse_selection_start" }
 end
 local mode_keys = {

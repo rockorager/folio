@@ -146,6 +146,19 @@ def session():
                 identity = editor()["id"]
                 assert not any(n["label"] in ("Open", "Save", "0 words", "Press i. Begin anywhere.") for n in tree()["nodes"])
                 capture("empty")
+                # Regression: an empty row must not hit the insertion offset
+                # after its LF, which belongs to the following row.
+                key("i"); key("enter"); key("escape"); key("k"); key("i"); text("foo")
+                capture("blank-line-insert")
+                assert editor()["value"] == "foo\n", "k on a blank row inserted on the following line"
+                key("escape"); key("n", control=True); click("/buttons/discard")
+                key("i"); key("enter"); key("enter"); key("enter"); key("escape")
+                sequence("kkkVj")
+                assert selected() == "\n\n" and editor()["selection"]["anchor"] == 0, editor()
+                capture("blank-line-selection")
+                key("d"); assert editor()["value"] == "\n", "Visual-line did not delete exactly two empty lines"
+                key("n", control=True); click("/buttons/discard")
+                identity = editor()["id"]
                 key("i")
                 assert editor()["text_entry"], "i must enter Insert without typing i"
                 before_typing = builds()
@@ -267,7 +280,7 @@ def session():
                 key("home", control=True); key("w"); key("v"); key("l")
                 key("c"); text("Z")
                 assert editor()["value"] == "alpha Zeta\nsecond line", editor()
-                key("z", control=True); key("z", control=True)
+                key("z", control=True)
                 assert editor()["value"] == before
                 key("escape"); key("g", shift=True); key("v"); key("b")
                 assert editor()["selection"]["anchor"] == len(before.encode()), editor()
@@ -282,7 +295,7 @@ def session():
                 key("u"); assert editor()["value"] == before
                 key("home", control=True); key("v"); key("w"); key("c"); text("New")
                 assert editor()["value"] == "Newβeta\nsecond line" and editor()["text_entry"], editor()
-                key("escape"); key("u"); key("u"); assert editor()["value"] == before
+                key("escape"); key("u"); assert editor()["value"] == before
                 assert editor()["id"] == identity, "mode changes or native edits remounted the editor"
 
                 # Physical multi-stroke commands, including queued typing after
@@ -290,11 +303,18 @@ def session():
                 sequence("gglciwnew")
                 assert editor()["value"] == "new βeta\nsecond line" and editor()["text_entry"], editor()
                 key("escape"); key("u")
-                assert editor()["value"] == " βeta\nsecond line", "typing should undo as one group"
+                assert editor()["value"] == before, "change and typing must undo together"
+                key("r", control=True)
+                assert editor()["value"] == "new βeta\nsecond line", "redo must restore the entire change"
+                key("u")
+                sequence("ggcwnew"); key("arrow_left"); text("!")
+                assert editor()["value"] == "ne!w βeta\nsecond line", editor()
+                key("escape"); key("u")
+                assert editor()["value"] == "new βeta\nsecond line", "navigation must end the change group"
                 key("u"); assert editor()["value"] == before
                 sequence("ggwlcawz")
                 assert editor()["value"] == "alphaz\nsecond line", editor()
-                key("escape"); key("u"); key("u"); assert editor()["value"] == before
+                key("escape"); key("u"); assert editor()["value"] == before
                 sequence("ggwlviw")
                 assert selected() == "βeta", editor()
                 capture("word-object")
@@ -306,7 +326,7 @@ def session():
                 assert editor()["value"] == "alpha βeta", editor()
                 key("u"); sequence("ggccchanged")
                 assert editor()["value"] == "changed\nsecond line" and editor()["text_entry"], editor()
-                key("escape"); key("u"); key("u"); assert editor()["value"] == before
+                key("escape"); key("u"); assert editor()["value"] == before
                 sequence("ggyyGp")
                 wait_for(lambda: editor()["value"] == before + "\nalpha βeta", "yy/p did not put below the final hard line")
                 key("u"); sequence("ggde")
@@ -315,7 +335,7 @@ def session():
                 assert editor()["value"] == "a\nsecond line", editor()
                 key("u"); sequence("gglCtail")
                 assert editor()["value"] == "atail\nsecond line", editor()
-                key("escape"); key("u"); key("u"); assert editor()["value"] == before
+                key("escape"); key("u"); assert editor()["value"] == before
                 sequence("ggd"); key("escape"); sequence("iw")
                 assert editor()["value"] == "w" + before, "Escape failed to cancel the operator prefix"
                 key("escape"); key("u"); assert editor()["value"] == before
@@ -329,13 +349,13 @@ def session():
                 key("u"); key("u")
                 sequence("ggcwnew")
                 assert editor()["value"] == "new βeta\nsecond line", editor()
-                key("escape"); key("u"); key("u")
+                key("escape"); key("u"); assert editor()["value"] == before
                 sequence("ggecwz")
                 assert editor()["value"] == "alphz βeta\nsecond line", editor()
-                key("escape"); key("u"); key("u")
+                key("escape"); key("u"); assert editor()["value"] == before
                 sequence("ggecez")
                 assert editor()["value"] == "alphz\nsecond line", editor()
-                key("escape"); key("u"); key("u")
+                key("escape"); key("u"); assert editor()["value"] == before
                 sequence("ggwywggp")
                 assert editor()["value"] == "aβetalpha βeta\nsecond line", editor()
                 key("u"); sequence("ggyiwP")
@@ -419,7 +439,7 @@ def session():
                 assert editor()["value"] == "Last paragraph.\nTail", editor()
                 key("u"); sequence("ggcipreplacement")
                 assert editor()["value"] == "replacement\n\n\nLast paragraph.\nTail", editor()
-                key("escape"); key("u"); key("u"); assert editor()["value"] == paragraphs
+                key("escape"); key("u"); assert editor()["value"] == paragraphs
                 sequence("gg}")
                 assert editor()["selection"]["extent"] == len("First paragraph.\nAnother hard line.\n"), editor()
                 sequence("}")
@@ -438,7 +458,7 @@ def session():
                 assert editor()["value"] == "First paragraph.\n\n\nLast paragraph.\nTail", editor()
                 key("u"); sequence("ggVGcwhole")
                 assert editor()["value"] == "whole" and editor()["text_entry"], editor()
-                key("escape"); key("u"); key("u"); assert editor()["value"] == paragraphs
+                key("escape"); key("u"); assert editor()["value"] == paragraphs
                 sequence("GVkd")
                 assert editor()["value"] == "First paragraph.\nAnother hard line.\n\n", editor()
                 key("u"); sequence("ggVjyGp")
@@ -456,7 +476,7 @@ def session():
                 assert editor()["selection"]["anchor"] == 2 and editor()["selection"]["extent"] == 1, editor()
                 key("c"); text("X")
                 assert editor()["value"] == "AXe\u0301 👩‍💻 Z\nShort", editor()
-                key("z", control=True); key("z", control=True)
+                key("z", control=True)
                 assert editor()["value"] == graphemes
                 key("escape"); key("home", control=True)
                 for _ in range(4): key("l")
@@ -464,7 +484,7 @@ def session():
                 assert editor()["selection"]["anchor"] == 6 and editor()["selection"]["extent"] == 17, editor()
                 key("c"); text("Q")
                 assert editor()["value"] == "A e\u0301 Q Z\nShort", editor()
-                key("z", control=True); key("z", control=True)
+                key("z", control=True)
                 assert editor()["value"] == graphemes
 
                 wrapped = "A wrapped paragraph with words. " * 12
@@ -502,6 +522,12 @@ def session():
                 key("home", control=True); key("end")
                 first_end = editor()["selection"]["extent"]
                 assert 0 < first_end < len(unbroken), "unbroken word did not wrap"
+                for motion in ("l", "h", "l", "h"):
+                    key(motion)
+                    geometry = editor()
+                    assert abs(geometry["text_scroll"]["x"]) < .01, "wrap-edge caret scrolled horizontally"
+                    caret, bounds = geometry["caret_bounds"], geometry["bounds"]
+                    assert caret["x"] + caret["width"] <= bounds["x"] + bounds["width"] + .01, geometry
                 capture("wrapped")
                 key("g", shift=True); key("home")
                 assert 0 < editor()["selection"]["extent"] < len(unbroken)
