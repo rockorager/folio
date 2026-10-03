@@ -21,6 +21,9 @@ characterwise/linewise register. Older Ourokit
 binaries cannot load these bindings.
 The launcher and Python checks default to
 `../ourokit` and accept `OUROKIT_DIR` to select another compatible checkout.
+Orb setup pins the source and prebuilt binary together using `toolkit_revision`
+in `.agents/setup`; update that pin only to a commit with a published binary.
+Setup refuses to fall back to a binary from a different revision.
 No native plugin is required. Open/Save As use the desktop's
 XDG file chooser portal; install your desktop's portal backend if needed.
 
@@ -158,13 +161,21 @@ There is no autosave or crash recovery yet; do not use the prototype for your on
 ```sh
 lua test_document.lua
 lua test_app.lua
+"${OUROKIT_DIR:-../ourokit}/zig-out/bin/ouroctl" test
 python3 test_native.py
 python3 snapshot.py --output /tmp/folio-stories
 ```
 
+`ouroctl test` runs `tests/*_test.lua` against the real Lua host and retained UI,
+without a compositor or Python helpers. It checks Folio's editor bindings and
+view retention. The standalone Lua tests still cover the document model and
+application callbacks with controlled file/portal results. The native suite
+retains coverage of physical keyboard delivery, clipboard, portals, and file I/O.
+
 Storybook renders the same view as the app in empty, Normal, Insert, narrow,
 unsaved-confirmation, and command-palette states, plus dark Normal, Insert,
-unsaved-confirmation, and command-palette states. `snapshot.py` bundles the local modules for its
-temporary catalog. Native interaction checks use the adjacent `ourokit`
+unsaved-confirmation, and command-palette states. `snapshot.py` passes `stories.lua`
+directly to Storybook, whose module loader resolves the local imports without
+bundling. Native interaction checks use the adjacent `ourokit`
 checkout's disposable Sway/private D-Bus harness;
 see `test_native.py` for overrides. Snapshot fonts come from Fontconfig.

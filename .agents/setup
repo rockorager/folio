@@ -6,6 +6,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 toolkit="${OUROKIT_DIR:-$(dirname "$repo_root")/ourokit}"
 toolkit_url="https://github.com/rockorager/ourokit"
+toolkit_revision="1af832b090271577f510e601c47806c1c4dd371b"
 asset="ouroctl-x86_64-linux-gnu.tar.gz"
 
 step() { printf '\n==> %s\n' "$*"; step_start=$SECONDS; }
@@ -31,14 +32,15 @@ done_step
 step "Ourokit checkout at $toolkit"
 if [[ ! -d "$toolkit/.git" ]]; then
   git clone --quiet --depth 1 "$toolkit_url" "$toolkit"
-elif [[ -z "$(git -C "$toolkit" status --porcelain --untracked-files=no)" ]] &&
-  [[ "$(git -C "$toolkit" rev-parse --abbrev-ref HEAD)" == main ]]; then
-  # Folio tracks Ourokit main; refresh a clean checkout from a stale snapshot.
-  git -C "$toolkit" fetch --quiet --depth 1 origin main
-  git -C "$toolkit" merge --quiet --ff-only FETCH_HEAD ||
-    echo "    warning: could not fast-forward Ourokit; keeping $(git -C "$toolkit" rev-parse --short HEAD)"
-else
-  echo "    local changes or non-main branch; leaving checkout untouched"
+fi
+if [[ "$(git -C "$toolkit" rev-parse HEAD)" != "$toolkit_revision" ]]; then
+  branch="$(git -C "$toolkit" branch --show-current)"
+  if [[ -n "$(git -C "$toolkit" status --porcelain)" || ( -n "$branch" && "$branch" != main ) ]]; then
+    echo "    error: checkout differs from the pin and has local work; leaving it untouched" >&2
+    exit 1
+  fi
+  git -C "$toolkit" fetch --quiet origin "$toolkit_revision"
+  git -C "$toolkit" checkout --quiet --detach "$toolkit_revision"
 fi
 echo "    at $(git -C "$toolkit" rev-parse --short HEAD)"
 done_step
@@ -65,10 +67,8 @@ else
     mv "$download/extract" "$toolkit/zig-out"
     echo "$head_sha" >"$marker"
     echo "    installed release for $head_sha"
-  elif [[ -x "$binary" ]]; then
-    echo "    warning: no release for $head_sha yet (CI may be running); keeping existing ouroctl"
   else
-    echo "    error: no ouroctl release for $head_sha; build Ourokit from source" >&2
+    echo "    error: no ouroctl release for $head_sha; refusing to use a mismatched binary" >&2
     exit 1
   fi
 fi
@@ -77,5 +77,5 @@ done_step
 
 step "Smoke check"
 lua -v
-(cd "$repo_root" && lua test_document.lua && lua test_app.lua)
+(cd "$repo_root" && lua test_document.lua && lua test_app.lua && "$binary" test)
 done_step
