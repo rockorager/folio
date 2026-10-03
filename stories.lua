@@ -22,16 +22,19 @@ for _, state in ipairs {
   { id = "commands", mode = "normal", width = 960, palette = { query = "", selected = 1 } },
   { id = "commands-filtered", mode = "normal", width = 540, palette = { query = "wq", selected = 1 } },
   { id = "commands-empty", mode = "normal", width = 960, palette = { query = "unknown", selected = 1 } },
+  { id = "dark-normal", mode = "normal", width = 960, color_scheme = "dark" },
+  { id = "dark-insert", mode = "insert", width = 960, color_scheme = "dark" },
+  { id = "dark-unsaved", mode = "insert", width = 960, pending = "close", color_scheme = "dark" },
+  { id = "dark-commands", mode = "normal", width = 960, palette = { query = "", selected = 1 }, color_scheme = "dark" },
 } do
   stories[#stories + 1] = o.story {
     id = "folio/" .. state.id, name = state.id, group = "Folio",
-    viewport = { width = state.width, height = 760 }, snapshot_scale = 2,
+    viewport = { width = state.width, height = 760 }, snapshot_scale = 2, color_scheme = state.color_scheme,
     content = function()
       local d = document.new(state.empty and "" or sample)
       if not state.empty then d.path = "/tmp/A room for words.md" end
       if state.pending then d.saved = "" end
-      return o.theme { key = "folio-theme", color_scheme = view.theme.color_scheme,
-        colors = view.theme.colors, typography = view.theme.typography, controls = view.theme.controls,
+      return o.theme { key = "app-theme", typography = view.theme.typography, controls = view.theme.controls,
         view.content({ doc = d, mode = state.mode, focus = 0, pending = state.pending, palette = state.palette }, actions),
       }
     end,

@@ -24,6 +24,11 @@ The launcher and Python checks default to
 No native plugin is required. Open/Save As use the desktop's
 XDG file chooser portal; install your desktop's portal backend if needed.
 
+Folio follows the desktop's light/dark preference from the XDG Settings portal
+(`org.freedesktop.appearance` `color-scheme`) and switches live without
+remounting the editor or losing undo history. With no portal or no preference
+it stays light. There is no in-app theme toggle.
+
 `./run-desktop.sh --dev` enables explicit source reload. Save your draft before
 reloading: Lua document state resets with the source generation. Reload does not
 upgrade the native toolkit binary; that requires restarting the application.
@@ -138,6 +143,7 @@ python3 snapshot.py --output /tmp/folio-stories
 ```
 
 Storybook renders the same view as the app in empty, Normal, Insert, narrow,
+unsaved-confirmation, and command-palette states, plus dark Normal, Insert,
 unsaved-confirmation, and command-palette states. `snapshot.py` bundles the local modules for its
 temporary catalog. Native interaction checks use the adjacent `ourokit`
 checkout's disposable Sway/private D-Bus harness;
