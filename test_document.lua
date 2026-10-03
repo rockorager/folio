@@ -16,6 +16,16 @@ d.replace(doc, "another document", "/tmp/c.md")
 assert(not d.saved(doc, snapshot, "/tmp/stale.md"))
 assert(doc.path == "/tmp/c.md" and not d.dirty(doc))
 
+snapshot = d.snapshot(doc)
+assert(d.saved(doc, snapshot, "/tmp/uncertain.md", false))
+assert(doc.path == "/tmp/uncertain.md" and d.dirty(doc), "visible bytes are not a durability confirmation")
+doc.text = "later edit"
+assert(d.saved(doc, snapshot, "/tmp/uncertain.md"))
+assert(d.dirty(doc) and not doc.durability_uncertain, "durable save must not swallow later edits")
+d.replace(doc, "new draft", nil)
+assert(not d.saved(doc, snapshot, "/tmp/stale.md", false))
+assert(not d.dirty(doc) and doc.path == nil)
+
 assert(d.decode("one\r\ntwo\rthree\n") == "one\ntwo\nthree\n")
 assert(d.decode("a\vb\fc" .. utf8.char(0x85) .. "d" .. utf8.char(0x2028) .. "e" .. utf8.char(0x2029) .. "f") == "a\nb\nc\nd\ne\nf")
 assert(d.decode("caf\195\169 — 日本語") == "café — 日本語")

@@ -16,11 +16,12 @@ function M.decode(bytes)
 end
 
 function M.dirty(d)
-  return d.text ~= d.saved
+  return d.durability_uncertain == true or d.text ~= d.saved
 end
 
 function M.replace(d, text, path)
   d.text, d.saved, d.path = text, text, path
+  d.durability_uncertain = false
   d.generation = d.generation + 1
 end
 
@@ -28,9 +29,10 @@ function M.snapshot(d)
   return { text = d.text, generation = d.generation }
 end
 
-function M.saved(d, snapshot, path)
+function M.saved(d, snapshot, path, durable)
   if snapshot.generation ~= d.generation then return false end
   d.saved, d.path = snapshot.text, path
+  d.durability_uncertain = durable == false
   return true
 end
 

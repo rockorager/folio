@@ -84,15 +84,17 @@ def session():
                     input_(action="text", text=value)
 
                 def sequence(value):
+                    # Keep one physical keyboard for the entire sequence.
+                    # Switching to a new wtype device after logical Shift+C
+                    # interrupted its undo group before the following typing.
+                    args = ["wtype", "-s", "100"]
                     for part in re.findall(r"[A-Z]|[^A-Z]+", value):
-                        # wtype's text keymap does not model Shift reliably.
-                        # Send uppercase commands through native logical input;
-                        # lowercase commands/typing remain physical fast runs.
                         if len(part) == 1 and "A" <= part <= "Z":
-                            key(part.lower(), shift=True)
+                            args += ["-M", "shift", "-k", part.lower(), "-m", "shift"]
                         else:
-                            subprocess.run(["wtype", "-s", "100", part], env=env, check=True)
-                            time.sleep(.15)
+                            args.append(part)
+                    subprocess.run(args, env=env, check=True)
+                    time.sleep(.15)
 
                 def selected():
                     state = editor()
@@ -480,12 +482,19 @@ def session():
                 palette(); text("w"); capture("commands-filtered"); key("enter")
                 wait_for(lambda: filename() == "saved draft.md", "save did not clear dirty state")
                 assert saved.read_bytes() == draft.encode()
+                saved.chmod(0o640)
                 key("i"); key("home", control=True); text("Revised ")
                 key("s", control=True)
                 wait_for(lambda: filename() == "saved draft.md", "second save did not finish")
                 assert saved.read_bytes() == ("Revised " + draft).encode()
+                assert saved.stat().st_mode & 0o777 == 0o640, "save changed existing permissions"
+                text("Pending ")
+                pending_save = editor()["value"]
                 key("escape"); palette(); text("e"); key("enter")
+                assert any(n["label"] == "Unsaved changes" for n in tree()["nodes"])
+                click("/buttons/save")
                 wait_for(lambda: filename() == "opened.md", "open did not finish")
+                assert saved.read_bytes() == pending_save.encode(), "Save then Open lost the pending draft"
                 assert editor()["value"] == "Fresh café\nsecond paragraph" and not editor()["text_entry"]
 
                 # Bad files leave the current buffer and saved filename untouched.
@@ -494,6 +503,21 @@ def session():
                 wait_for(lambda: any("not UTF-8" in n["label"] for n in tree()["nodes"]), "invalid file error missing")
                 assert filename() == "opened.md" and editor()["value"] == "Fresh café\nsecond paragraph"
                 capture("invalid-file")
+
+                # A path changed into a link after Open must not overwrite its
+                # target or discard the still-unsaved draft.
+                target = root / "symlink target.md"
+                target.write_text("keep target")
+                opened.unlink()
+                opened.symlink_to(target)
+                key("i"); text("Unsaved "); key("s", control=True)
+                wait_for(lambda: any("symbolic link" in n["label"] for n in tree()["nodes"]), "symlink error missing")
+                assert opened.is_symlink() and target.read_text() == "keep target"
+                assert filename().endswith("•")
+                capture("symlink-save")
+                key("z", control=True); key("escape")
+                assert filename() == "opened.md"
+                opened.unlink()
 
                 paragraphs = "First paragraph.\nAnother hard line.\n\n\nLast paragraph.\nTail"
                 opened.write_text(paragraphs)

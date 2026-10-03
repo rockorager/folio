@@ -1,4 +1,5 @@
 local o = require("ouro")
+assert(o.runtime and o.runtime.api_level >= 3, "Folio requires Ourokit runtime API 3 or newer")
 local document = require("document")
 local commands = require("commands")
 local M = {}
@@ -29,13 +30,6 @@ M.palettes = {
   },
 }
 
--- Stateless renders receive resolved colors, not the scheme name.
-function M.scheme(theme)
-  local r, g, b = theme.colors.background:match("^#(%x%x)(%x%x)(%x%x)")
-  local luma = 0.2126 * tonumber(r, 16) + 0.7152 * tonumber(g, 16) + 0.0722 * tonumber(b, 16)
-  return luma < 128 and "dark" or "light"
-end
-
 local motions = {
   H = "visual_left", J = "line_down", K = "line_up", L = "visual_right",
   W = "vim_word_start_next", E = "vim_word_end_next", B = "vim_word_start_previous",
@@ -47,33 +41,38 @@ local motions = {
   Home = "line_start", End = "line_end",
 }
 M.normal_bindings = {
-  inherit = false, I = { "normalize_caret", "submit" }, V = { "normalize_caret", "select_characters" }, Escape = "normalize_caret",
-  ["Shift+V"] = "select_line",
-  A = "append_character", ["Shift+A"] = "move_logical_line_end", ["Shift+I"] = "move_logical_line_start",
-  O = "insert_line_below", ["Shift+O"] = "insert_line_above",
+  inherit = false, I = { "normalize_caret", command = "insert" }, Escape = "normalize_caret",
+  V = { "normalize_caret", "select_characters", command = "visual" },
+  ["Shift+V"] = { "select_line", command = "visual_line" },
+  A = { "append_character", command = "insert" }, ["Shift+A"] = { "move_logical_line_end", command = "insert" },
+  ["Shift+I"] = { "move_logical_line_start", command = "insert" },
+  O = { "insert_line_below", command = "insert" }, ["Shift+O"] = { "insert_line_above", command = "insert" },
   U = { "undo", "normalize_caret" }, ["Ctrl+R"] = { "redo", "normalize_caret" },
   X = { "select_character_forward", "yank", "delete_selection" },
   ["Shift+X"] = { "select_character_backward", "yank", "delete_selection" },
   P = "put_after", ["Shift+P"] = "put_before", ["Ctrl+C"] = "copy",
   ["D D"] = { "select_line", "yank_lines", "delete_lines" },
-  ["C C"] = { "select_line", "yank_lines", "begin_undo_group", "clear_lines", "submit" },
+  ["C C"] = { "select_line", "yank_lines", "begin_undo_group", "clear_lines", command = "insert" },
   ["Y Y"] = { "select_line", "yank_lines", "collapse_selection", "normalize_caret" },
   ["G G"] = "move_normal_document_start",
   ["Shift+D"] = { "select_logical_line_end", "yank", "delete_selection" },
-  ["Shift+C"] = { "select_logical_line_end", "yank", "begin_undo_group", "delete_selection", "submit" },
-  ["Shift+S"] = { "select_line", "yank_lines", "begin_undo_group", "clear_lines", "submit" },
+  ["Shift+C"] = { "select_logical_line_end", "yank", "begin_undo_group", "delete_selection", command = "insert" },
+  ["Shift+S"] = { "select_line", "yank_lines", "begin_undo_group", "clear_lines", command = "insert" },
   ["D W"] = { "select_vim_word_forward", "yank", "delete_selection" },
-  ["C W"] = { "select_vim_change_word", "yank", "begin_undo_group", "delete_selection", "submit" },
+  ["C W"] = { "select_vim_change_word", "yank", "begin_undo_group", "delete_selection", command = "insert" },
   ["Y W"] = { "select_vim_word_forward", "yank", "collapse_selection_start" },
 }
 M.visual_bindings = {
-  inherit = false, V = "normalize_caret", Escape = "normalize_caret", O = "swap_selection",
-  ["Shift+V"] = "select_line", ["G G"] = "select_inclusive_document_start",
-  Y = { "yank", "collapse_selection_start", "cancel" }, ["Ctrl+C"] = "copy",
-  D = { "yank", "delete_selection" }, X = { "yank", "delete_selection" }, C = { "yank", "begin_undo_group", "delete_selection" },
+  inherit = false, V = { "normalize_caret", command = "normal" },
+  Escape = { "normalize_caret", command = "normal" }, O = "swap_selection",
+  ["Shift+V"] = { "select_line", command = "visual_line" }, ["G G"] = "select_inclusive_document_start",
+  Y = { "yank", "collapse_selection_start", command = "normal" }, ["Ctrl+C"] = "copy",
+  D = { "yank", "delete_selection", command = "normal" }, X = { "yank", "delete_selection", command = "normal" },
+  C = { "yank", "begin_undo_group", "delete_selection", command = "insert" },
 }
 M.visual_line_bindings = {
-  inherit = false, V = "select_characters", ["Shift+V"] = "normalize_caret", Escape = "normalize_caret",
+  inherit = false, V = { "select_characters", command = "visual" },
+  ["Shift+V"] = { "normalize_caret", command = "normal" }, Escape = { "normalize_caret", command = "normal" },
   J = "select_lines_down", K = "select_lines_up", Down = "select_lines_down", Up = "select_lines_up",
   H = "select_lines_left", L = "select_lines_right", Left = "select_lines_left", Right = "select_lines_right",
   W = "select_lines_word_start_next", B = "select_lines_word_start_previous", E = "select_lines_word_end_next",
@@ -82,8 +81,9 @@ M.visual_line_bindings = {
   ["G G"] = "select_lines_start", ["Ctrl+Home"] = "select_lines_start", ["Shift+G"] = "select_lines_end",
   Brace_Left = "select_lines_paragraph_previous", ["Shift+Brace_Left"] = "select_lines_paragraph_previous",
   Brace_Right = "select_lines_paragraph_next", ["Shift+Brace_Right"] = "select_lines_paragraph_next",
-  Y = { "yank_lines", "collapse_selection_start", "cancel" }, ["Ctrl+C"] = "copy",
-  D = { "yank_lines", "delete_lines" }, X = { "yank_lines", "delete_lines" }, C = { "yank_lines", "begin_undo_group", "clear_lines" },
+  Y = { "yank_lines", "collapse_selection_start", command = "normal" }, ["Ctrl+C"] = "copy",
+  D = { "yank_lines", "delete_lines", command = "normal" }, X = { "yank_lines", "delete_lines", command = "normal" },
+  C = { "yank_lines", "begin_undo_group", "clear_lines", command = "insert" },
 }
 for key, destination in pairs(motions) do
   M.normal_bindings[key] = "move_normal_" .. destination
@@ -98,28 +98,26 @@ for keys, object in pairs {
   local yank = paragraph and "yank_lines" or "yank"
   M.visual_bindings[keys] = { select, "select_characters" }
   M.normal_bindings["D " .. keys] = { select, yank, paragraph and "delete_lines" or "delete_selection" }
-  M.normal_bindings["C " .. keys] = { select, yank, "begin_undo_group", paragraph and "clear_lines" or "delete_selection", "submit" }
+  M.normal_bindings["C " .. keys] = { select, yank, "begin_undo_group", paragraph and "clear_lines" or "delete_selection", command = "insert" }
   M.normal_bindings["Y " .. keys] = { select, yank, "collapse_selection_start" }
 end
 for key, destination in pairs { E = "vim_word_end_next", B = "vim_word_start_previous" } do
   local select = "select_" .. destination
   M.normal_bindings["D " .. key] = { select, "yank", "delete_selection" }
-  M.normal_bindings["C " .. key] = { select, "yank", "begin_undo_group", "delete_selection", "submit" }
+  M.normal_bindings["C " .. key] = { select, "yank", "begin_undo_group", "delete_selection", command = "insert" }
   M.normal_bindings["Y " .. key] = { select, "yank", "collapse_selection_anchor" }
 end
 -- Deletions return to a character position; changes keep the insertion edge.
 for _, bindings in ipairs { M.normal_bindings, M.visual_bindings, M.visual_line_bindings } do
-  for key, recipe in pairs(bindings) do
-    if key ~= "C" and type(recipe) == "table" and (recipe[#recipe] == "delete_selection" or recipe[#recipe] == "delete_lines") then
+  bindings.Colon, bindings["Shift+Colon"] = { command = "palette" }, { command = "palette" }
+  for _, recipe in pairs(bindings) do
+    if type(recipe) == "table" and recipe.command ~= "insert" and (recipe[#recipe] == "delete_selection" or recipe[#recipe] == "delete_lines") then
       recipe[#recipe + 1] = "normalize_caret"
     end
   end
 end
-local mode_keys = {
-  normal = { "V", "Shift+V", "Escape", "A", "Shift+A", "Shift+I", "O", "Shift+O", "Colon", "Shift+Colon" },
-  visual = { "V", "Shift+V", "Escape", "D", "X", "C", "Colon", "Shift+Colon" },
-  ["visual-line"] = { "V", "Shift+V", "Escape", "D", "X", "C", "Colon", "Shift+Colon" },
-  insert = { "Escape" },
+M.insert_bindings = {
+  Escape = { "end_undo_group", "normalize_caret", command = "normal" },
 }
 
 local function page(s, actions, p)
@@ -129,7 +127,7 @@ local function page(s, actions, p)
   local inserting = s.mode == "insert"
   local bindings = s.mode == "visual-line" and M.visual_line_bindings
     or s.mode == "visual" and M.visual_bindings
-    or not inserting and M.normal_bindings or { Escape = "normalize_caret" }
+    or not inserting and M.normal_bindings or M.insert_bindings
   local modal
   if s.pending then
     modal = o.dialog { key = "confirm", label = "Unsaved changes", width = 420,
@@ -177,63 +175,51 @@ local function page(s, actions, p)
       },
     }
   end
-  return o.box { key = "root", width = "fill", height = "fill",
+  return o.box { key = "root", width = "fill", height = "fill", background = c.background,
     commands = actions.commands,
     shortcuts = { ["Ctrl+S"] = "save", ["Ctrl+Shift+S"] = "save_as",
       ["Ctrl+O"] = "open", ["Ctrl+N"] = "new", ["Ctrl+Q"] = "close",
       ["Ctrl+Equal"] = "font_increase", ["Ctrl+Plus"] = "font_increase", ["Ctrl+Shift+Plus"] = "font_increase",
       ["Ctrl+Minus"] = "font_decrease", ["Ctrl+0"] = "font_reset" },
-    -- A viewport-sized floating child escapes the native window's content
-    -- inset, whose color follows only the app theme. The outer layer repaints
-    -- that inset in the scheme's palette; the inner layer's zero margin clamps
-    -- either dialog's backdrop to the window edges.
-    o.anchored { key = "surface", margin = 0, gap = 0, flip = false,
-      o.box { key = "anchor" },
-      o.box { key = "window", width = "fill", height = "fill", padding = o.tokens.foundation.spacing_3,
-        background = c.background,
-        o.anchored { key = "layers", margin = 0, gap = 0, flip = false,
-          o.column { key = "page", width = "fill", height = "fill", cross_alignment = "stretch",
-            o.box { key = "header", padding_x = 24, padding_y = 14,
-              o.row { key = "row", cross_alignment = "center", gap = 8,
-                o.text { key = "filename", text = document.name(d) .. (dirty and "  •" or ""), flex = 1, max_lines = 1, overflow = "ellipsis" },
-              },
-            },
-            o.box { key = "margin", flex = 1, padding_x = 32, padding_y = 38, alignment = "top",
-              o.box { key = "measure", width = "fill", max_width = 680, height = "fill",
-                on_key = { keys = mode_keys[s.mode], states = { "pressed" }, propagate = true,
-                  handler = actions.editor_key },
-                o.theme { key = "prose", typography = { family = "serif", size = s.font_size or M.default_font_size },
-                  o.text_editor { key = "draft-" .. d.generation, default_text = d.text, label = "Draft",
-                    multiline = true, height = "fill", autofocus = true, focus_request = s.focus,
-                    read_only = s.busy or s.pending ~= nil or s.palette ~= nil, text_entry = inserting,
-                    caret_color = c.primary, selection_color = c.selection,
-                    caret_shape = inserting and "beam" or "block", caret_blink = false,
-                    key_bindings = bindings,
-                    on_change = actions.edit, on_command = actions.mode,
-                  },
-                },
-              },
-            },
-            o.box { key = "footer", padding_x = 24, padding_y = 16,
-              o.column { key = "status", gap = 8,
-                s.error and o.text { key = "error", text = s.error, foreground = c.primary } or o.box { key = "no-error" },
-                o.row { key = "row", gap = 16, cross_alignment = "center",
-                  o.text { key = "mode", text = s.mode:upper(), foreground = c.primary, size = 12 },
-                  s.busy and o.text { key = "activity", flex = 1, alignment = "end", size = 12,
-                    foreground = p.muted, text = "Working…" } or nil,
-                },
+    o.stack { key = "layers", width = "fill", height = "fill",
+      o.column { key = "page", width = "fill", height = "fill", cross_alignment = "stretch",
+        padding = o.tokens.foundation.spacing_3,
+        o.box { key = "header", padding_x = 24, padding_y = 14,
+          o.row { key = "row", cross_alignment = "center", gap = 8,
+            o.text { key = "filename", text = document.name(d) .. (dirty and "  •" or ""), flex = 1, max_lines = 1, overflow = "ellipsis" },
+          },
+        },
+        o.box { key = "margin", flex = 1, padding_x = 32, padding_y = 38, alignment = "top",
+          o.box { key = "measure", width = "fill", max_width = 680, height = "fill",
+            o.theme { key = "prose", typography = { family = "serif", size = s.font_size or M.default_font_size },
+              o.text_editor { key = "draft-" .. d.generation, default_text = d.text, label = "Draft",
+                multiline = true, height = "fill", autofocus = true, focus_request = s.focus,
+                read_only = s.busy or s.pending ~= nil or s.palette ~= nil, text_entry = inserting,
+                caret_color = c.primary, selection_color = c.selection,
+                caret_shape = inserting and "beam" or "block", caret_blink = false,
+                key_bindings = bindings, on_change = actions.edit,
               },
             },
           },
-          modal,
+        },
+        o.box { key = "footer", padding_x = 24, padding_y = 16,
+          o.column { key = "status", gap = 8,
+            s.error and o.text { key = "error", text = s.error, foreground = c.primary } or o.box { key = "no-error" },
+            o.row { key = "row", gap = 16, cross_alignment = "center",
+              o.text { key = "mode", text = s.mode:upper(), foreground = c.primary, size = 12 },
+              s.busy and o.text { key = "activity", flex = 1, alignment = "end", size = 12,
+                foreground = p.muted, text = "Working…" } or nil,
+            },
+          },
         },
       },
+      modal,
     },
   }
 end
 
 local Themed = o.stateless(function(props, _, theme)
-  local scheme = M.scheme(theme)
+  local scheme = theme.color_scheme
   local p = M.palettes[scheme]
   return o.theme { key = props.key, color_scheme = scheme, colors = p.colors, props.build(p) }
 end)

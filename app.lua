@@ -10,7 +10,13 @@ local filters = { { name = "Plain text", patterns = { "*.txt", "*.md", "*.markdo
 local function refresh() changed:set(changed() + 1) end
 local function refocus() s.focus = s.focus + 1; refresh() end
 local function failure(err)
-  s.error = type(err) == "table" and (err.message or err.name) or tostring(err)
+  if type(err) == "table" and err.committed then
+    s.error = "The file was replaced, but its survival across a power loss could not be confirmed. The draft remains marked unsaved."
+  elseif type(err) == "table" and err.name == "SymlinkNotAllowed" then
+    s.error = "This path is a symbolic link. Use Save As to choose its target or another file."
+  else
+    s.error = type(err) == "table" and (err.message or err.name) or tostring(err)
+  end
   refresh()
 end
 
@@ -30,7 +36,8 @@ local function save(save_as)
   end
   local ok, err = o.files.write(path, snapshot.text)
   s.busy = false
-  if ok then document.saved(s.doc, snapshot, path) else failure(err) end
+  if ok or (err and err.committed) then document.saved(s.doc, snapshot, path, ok == true) end
+  if not ok then failure(err) end
   refocus()
   return ok and not document.dirty(s.doc)
 end
@@ -73,30 +80,18 @@ function actions.edit(text)
   if was_dirty ~= document.dirty(s.doc) or error then refresh() end
 end
 
-function actions.mode(command)
+local function mode(name)
   if s.busy or s.pending or s.palette then return end
-  if command == "submit" then s.mode = "insert"
-  elseif command == "cancel" then s.mode = "normal" end
+  s.mode = name
   refresh()
 end
-
--- The nonconsuming listener only changes mode. The editor's key bindings
--- own selection and undoable edits, before these Lua callbacks run.
-function actions.editor_key(event)
-  if s.busy or s.pending or s.palette then return end
-  local key = event.key
-  if key == "COLON" and s.mode ~= "insert" then
-    s.palette = { query = "", selected = 1 }
-  elseif key == "Escape" then s.mode = "normal"
-  elseif key == "V" and s.mode ~= "insert" then
-    local mode = event.modifiers and event.modifiers.shift and "visual-line" or "visual"
-    s.mode = s.mode == mode and "normal" or mode
-  elseif s.mode == "normal" and (key == "A" or key == "I" or key == "O") then
-    s.mode = "insert"
-  elseif s.mode == "visual" or s.mode == "visual-line" then
-    if key == "C" then s.mode = "insert"
-    elseif key == "D" or key == "X" then s.mode = "normal" end
-  end
+actions.commands.insert = function() mode("insert") end
+actions.commands.normal = function() mode("normal") end
+actions.commands.visual = function() mode("visual") end
+actions.commands.visual_line = function() mode("visual-line") end
+function actions.commands.palette()
+  if s.busy or s.pending or s.palette or s.mode == "insert" then return end
+  s.palette = { query = "", selected = 1 }
   refresh()
 end
 
@@ -110,9 +105,7 @@ function actions.palette_run(id)
   if not s.palette or s.busy or s.pending then return end
   s.palette = nil
   refocus()
-  -- Closing the palette retires its widget task scope. File/portal awaits
-  -- must outlive that scope, but still cancel when the app generation ends.
-  o.spawn_app(actions.commands[id])
+  actions.commands[id]()
 end
 function actions.palette_command(command)
   if not s.palette then return end
@@ -129,17 +122,21 @@ function actions.palette_command(command)
 end
 
 function actions.cancel() s.pending = nil; refocus() end
-function actions.discard() if not s.busy then perform(s.pending) end end
-function actions.save_continue()
+actions.discard = o.app_command(function() if not s.busy then perform(s.pending) end end)
+actions.save_continue = o.app_command(function()
   local intent = s.pending
   if save(false) and s.pending == intent then perform(intent) end
-end
+end)
 actions.commands.save = function() s.palette = nil; save(false) end
 actions.commands.save_as = function() s.palette = nil; save(true) end
 actions.commands.save_quit = function() if save(false) then perform("close") end end
 actions.commands.open = function() request("open") end
 actions.commands.new = function() request("new") end
 actions.commands.close = function() request("close") end
+-- File commands outlive the palette/button that invokes them, but not reload.
+for _, command in ipairs(commands.items) do
+  actions.commands[command.id] = o.app_command(actions.commands[command.id])
+end
 
 local function font_size(size)
   size = math.max(12, math.min(48, size))
@@ -153,7 +150,7 @@ return o.app {
   id = "dev.rockorager.folio", theme = view.theme,
   run = function()
     return { windows = {
-      o.window { id = "main", title = "Folio", width = 960, height = 760,
+      o.window { id = "main", title = "Folio", width = 960, height = 760, padding = 0,
         on_close_request = actions.commands.close,
         content = function() changed(); return view.content(s, actions) end,
       },

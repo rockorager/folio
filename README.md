@@ -14,11 +14,10 @@ zig build -Dvulkan=false -Doptimize=ReleaseFast
 ./run-desktop.sh
 ```
 
-Requires Ourokit's modal-editing/caret-shape support (`text_entry`, `caret_shape`,
-and logical-line editing commands), plus native multi-stroke binding recipes,
-Vim word motions/objects, whole-line selection commands, and the unnamed
-characterwise/linewise register. Older Ourokit
-binaries cannot load these bindings.
+Requires Ourokit runtime API 3 or newer, declared in `ouro.json` and checked by
+the shared view for direct Lua/Storybook entry points. This includes named editor
+commands, app-owned command lifetimes, resolved theme schemes, and explicit
+window/preview padding. `ouroctl version` reports the API level and source revision.
 The launcher and Python checks default to
 `../ourokit` and accept `OUROKIT_DIR` to select another compatible checkout.
 Orb setup pins the source and prebuilt binary together using `toolkit_revision`
@@ -151,8 +150,13 @@ put/replacement is not implemented; return to Normal to use `p`/`P`.
 
 Files remain plain UTF-8 text (including Markdown source); there is no rendered
 Markdown mode. Opens are limited to 1 MiB and reject NUL/invalid UTF-8. Line endings
-normalize to LF. Save uses Ourokit's atomic replacement API, which currently writes
-mode 0600 files and replaces destination symlinks rather than following them.
+normalize to LF. Save atomically replaces the file, preserves existing rwx
+permissions (not special bits, ownership, ACLs, or extended attributes), and
+syncs the file and containing directory. New files use mode 0600 subject to umask.
+Destination symlinks are rejected; use Save As to select their target or another
+path. If replacement succeeds but directory sync fails, Folio remembers the
+destination, explains that durability is uncertain, and keeps the draft marked
+unsaved. It does not retry automatically or proceed with Save and Quit.
 New/Open/Quit and window-close requests prompt before losing unsaved changes.
 There is no autosave or crash recovery yet; do not use the prototype for your only copy.
 
@@ -173,8 +177,11 @@ application callbacks with controlled file/portal results. The native suite
 retains coverage of physical keyboard delivery, clipboard, portals, and file I/O.
 
 Storybook renders the same view as the app in empty, Normal, Insert, narrow,
-unsaved-confirmation, and command-palette states, plus dark Normal, Insert,
-unsaved-confirmation, and command-palette states. `snapshot.py` passes `stories.lua`
+unsaved-confirmation, uncertain-save, and command-palette states, plus dark
+Normal, Insert, unsaved-confirmation, uncertain-save, and command-palette states.
+Windows, stories, and full-view component tests use zero host padding; the view
+owns page spacing so modal backdrops cover the entire window.
+`snapshot.py` passes `stories.lua`
 directly to Storybook, whose module loader resolves the local imports without
 bundling. Native interaction checks use the adjacent `ourokit`
 checkout's disposable Sway/private D-Bus harness;

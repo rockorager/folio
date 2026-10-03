@@ -6,7 +6,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 toolkit="${OUROKIT_DIR:-$(dirname "$repo_root")/ourokit}"
 toolkit_url="https://github.com/rockorager/ourokit"
-toolkit_revision="1af832b090271577f510e601c47806c1c4dd371b"
+toolkit_revision="e4784999d74321f670bf7f809daf9ad485d77d76"
 asset="ouroctl-x86_64-linux-gnu.tar.gz"
 
 step() { printf '\n==> %s\n' "$*"; step_start=$SECONDS; }
