@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Prepare an Amp orb: Lua for the unit checks, the adjacent Ourokit checkout
+# with its prebuilt ouroctl, and the headless Sway harness test_native.py uses.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+toolkit="${OUROKIT_DIR:-$(dirname "$repo_root")/ourokit}"
+toolkit_url="https://github.com/rockorager/ourokit"
+asset="ouroctl-x86_64-linux-gnu.tar.gz"
+
+step() { printf '\n==> %s\n' "$*"; step_start=$SECONDS; }
+done_step() { printf '    done in %ss\n' "$((SECONDS - step_start))"; }
+
+step "System packages"
+packages=(lua5.4 sway wtype grim libwayland-bin libwayland-dev libglib2.0-bin
+  dbus-daemon gcc pkg-config python3-gi curl ca-certificates git)
+missing=()
+for package in "${packages[@]}"; do
+  dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed" ||
+    missing+=("$package")
+done
+if ((${#missing[@]})); then
+  echo "    installing: ${missing[*]}"
+  sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${missing[@]}"
+else
+  echo "    all present"
+fi
+done_step
+
+step "Ourokit checkout at $toolkit"
+if [[ ! -d "$toolkit/.git" ]]; then
+  git clone --quiet --depth 1 "$toolkit_url" "$toolkit"
+elif [[ -z "$(git -C "$toolkit" status --porcelain --untracked-files=no)" ]] &&
+  [[ "$(git -C "$toolkit" rev-parse --abbrev-ref HEAD)" == main ]]; then
+  # Folio tracks Ourokit main; refresh a clean checkout from a stale snapshot.
+  git -C "$toolkit" fetch --quiet --depth 1 origin main
+  git -C "$toolkit" merge --quiet --ff-only FETCH_HEAD ||
+    echo "    warning: could not fast-forward Ourokit; keeping $(git -C "$toolkit" rev-parse --short HEAD)"
+else
+  echo "    local changes or non-main branch; leaving checkout untouched"
+fi
+echo "    at $(git -C "$toolkit" rev-parse --short HEAD)"
+done_step
+
+# Ourokit CI publishes a software-rendering ouroctl for every main commit, so
+# orbs need neither Zig nor Rust. Building from source remains possible with
+# `zig build -Dvulkan=false` after installing those toolchains.
+step "Prebuilt ouroctl"
+binary="$toolkit/zig-out/bin/ouroctl"
+marker="$toolkit/zig-out/.ouroctl-release"
+head_sha="$(git -C "$toolkit" rev-parse HEAD)"
+if [[ -x "$binary" && -f "$marker" && "$(cat "$marker")" == "$head_sha" ]]; then
+  echo "    already matches $head_sha"
+else
+  download="$(mktemp -d)"
+  trap 'rm -rf "$download"' EXIT
+  base="$toolkit_url/releases/download/commit-$head_sha"
+  if curl -fsSL --retry 3 -o "$download/$asset" "$base/$asset" &&
+    curl -fsSL --retry 3 -o "$download/$asset.sha256" "$base/$asset.sha256"; then
+    (cd "$download" && sha256sum --quiet -c "$asset.sha256")
+    mkdir -p "$download/extract"
+    tar -xzf "$download/$asset" -C "$download/extract" --strip-components=1
+    rm -rf "$toolkit/zig-out"
+    mv "$download/extract" "$toolkit/zig-out"
+    echo "$head_sha" >"$marker"
+    echo "    installed release for $head_sha"
+  elif [[ -x "$binary" ]]; then
+    echo "    warning: no release for $head_sha yet (CI may be running); keeping existing ouroctl"
+  else
+    echo "    error: no ouroctl release for $head_sha; build Ourokit from source" >&2
+    exit 1
+  fi
+fi
+"$binary" --help >/dev/null
+done_step
+
+step "Smoke check"
+lua -v
+(cd "$repo_root" && lua test_document.lua && lua test_app.lua)
+done_step
