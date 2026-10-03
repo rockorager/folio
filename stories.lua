@@ -9,7 +9,8 @@ I had spent the morning moving words around. A paragraph moved up. A sentence di
 
 Writing is sometimes like that. Less a matter of finding something new than making enough room to see what is already there.]]
 local function noop() end
-local actions = { commands = { save = noop, save_as = noop, open = noop, new = noop, close = noop },
+local actions = { commands = { save = noop, save_as = noop, open = noop, new = noop, close = noop,
+    font_increase = noop, font_decrease = noop, font_reset = noop },
   edit = noop, mode = noop, editor_key = noop, cancel = noop, discard = noop, save_continue = noop,
   palette_run = noop, palette_cancel = noop, palette_edit = noop, palette_command = noop }
 local stories = {}

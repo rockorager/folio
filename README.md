@@ -54,7 +54,7 @@ keyboard hints, word count, or Open/Save buttons.
 | `{`, `}` | Previous/next paragraph boundary |
 | `a`, `A`, `I` | Insert after one grapheme, at hard line end, at hard line start |
 | `o O` | Open an empty hard line below/above and enter Insert |
-| `x X` | Delete the next/previous grapheme |
+| `x X` | Delete the current/previous grapheme without crossing a hard newline; holding repeats |
 | `dd`, `cc` / `S`, `yy` | Delete/change/yank the current hard line |
 | `D`, `C` | Delete/change through the hard line end |
 | `dw de db`, `cw ce cb`, `yw ye yb` | Delete/change/yank by word motion |
@@ -65,6 +65,9 @@ keyboard hints, word count, or Open/Save buttons.
 | `v` | Enter Visual selection; `v` or `Esc` returns to Normal |
 | `V` | Enter Visual-line; `V` or `Esc` returns to Normal |
 | `j k`, `gg G`, `{ }` in Visual-line | Extend/shrink whole hard lines, independent of wrapping |
+| `h l`, `w b e`, `0 $` in Visual-line | Move the active cursor while keeping whole lines selected |
+| `o` in either Visual mode | Swap the active cursor and anchor |
+| `v` / `V` between Visual modes | Convert the selection without losing its endpoints |
 | Motions in Visual | Extend or shrink the native selection |
 | `iw aw`, `ip ap` in Visual | Select an inner/around word or paragraph (`viw`, `vap`, etc.) |
 | `y` in either Visual mode | Yank selection and return to Normal |
@@ -75,6 +78,12 @@ keyboard hints, word count, or Open/Save buttons.
 | `Ctrl+S`, `Ctrl+Shift+S` | Save, Save As |
 | `Ctrl+O`, `Ctrl+N`, `Ctrl+Q` | Open, New, Quit |
 | `Ctrl+Z`, `Ctrl+Shift+Z` in Insert | Native undo/redo |
+| `Ctrl++` / `Ctrl+=`, `Ctrl+-` | Increase/decrease the writing font by 2 pixels (12–48) |
+| `Ctrl+0` | Reset the writing font to 23 pixels |
+
+Font size is a session-only view setting; it does not change the document or
+the size of the surrounding UI. The writing surface requests Fontconfig's
+`serif` family; the UI and command input request `sans-serif`.
 
 The command palette filters by name or Vim-style alias: `w` (Save), `e` (Open),
 `saveas`, `enew` (New document), `wq` (Save and quit), and `q` (Quit). Up/Down select, Enter runs,
@@ -95,6 +104,12 @@ still use separate undo steps for line insertion and typing, and do not auto-ind
 have no timeout; Escape cancels a pending prefix. An unmatched key cancels the
 prefix and is interpreted normally. Changing focus, clicking, or rebuilding
 the editor's bindings also cancels a prefix.
+
+Visual-line retains the cursor separately from the highlighted line bounds;
+entering or leaving it does not jump to the next line. Its vertical motions
+retain a grapheme column across shorter hard lines, rather than Neovim's
+terminal-cell column (tabs and wide characters can therefore differ).
+
 `w` moves to the next word's start; `e` lands on the final grapheme, and `de`/`ce`
 include it. `dw`/`yw` include trailing spaces but stop before the current hard
 newline. `cw` on a word preserves the following spaces, including when the caret
@@ -111,20 +126,25 @@ operations retain linewise type; ordinary word/character selections are characte
 New/Open, but not quitting. Insert Ctrl+C/X/V continue to use the system clipboard
 without changing the register. Puts are a single undo step.
 
-These remain Vim-inspired bindings over native insertion-edge caret semantics.
+Normal motions land on characters, not the insertion position after a hard
+line's last character. `$` lands on the final grapheme; `a` inserts after it
+without crossing the newline. `yy` and backward `yb` retain the original cursor.
+Insert retains native insertion-edge behavior. Escape clamps a trailing
+insertion edge onto the final character, but does not step left within a line.
+
+These remain Vim-inspired bindings, not a complete Vim implementation.
 `I` goes to the hard line start, not the first nonblank. Paragraphs are runs of nonempty hard lines; whitespace-only
 lines count as content. `ap` includes following blank lines, or preceding blank
 lines at the end of the document. No counts, general operator grammar beyond the
 listed bindings, blockwise selection, search, sentence objects, named/numbered
 registers, or dot-repeat yet.
 
-Visual currently uses native insertion-edge selection, not Vim's inclusive
-character selection: press `v`, then move to select text. `Esc`/`v` collapse at
-the active selection end without moving it. `i` and `a` now start text-object
-commands; use `c` to replace a selection. Deleting an empty character selection
-does nothing. Visual-line keeps whole hard lines selected while moving up/down;
-horizontal motions are not active in that mode. Visual put/replacement is not
-implemented; return to Normal to use `p`/`P`.
+Visual selection includes the characters under both cursor endpoints. `v`
+selects the current grapheme immediately, `vl` selects two, and reversing or
+converting through Visual-line retains those endpoints. `Esc`/`v` return to the
+active character rather than the exclusive selection boundary. `i` and `a`
+start text-object commands; use `c` to replace a selection. Visual
+put/replacement is not implemented; return to Normal to use `p`/`P`.
 
 Files remain plain UTF-8 text (including Markdown source); there is no rendered
 Markdown mode. Opens are limited to 1 MiB and reject NUL/invalid UTF-8. Line endings

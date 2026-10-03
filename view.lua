@@ -2,6 +2,7 @@ local o = require("ouro")
 local document = require("document")
 local commands = require("commands")
 local M = {}
+M.default_font_size = 23
 
 -- The app theme omits color_scheme so the host's Settings portal chooses light
 -- or dark; M.content then applies Folio's palette for that scheme.
@@ -46,18 +47,18 @@ local motions = {
   Home = "line_start", End = "line_end",
 }
 M.normal_bindings = {
-  inherit = false, I = "submit", V = "collapse_selection", Escape = "collapse_selection",
+  inherit = false, I = { "normalize_caret", "submit" }, V = { "normalize_caret", "select_characters" }, Escape = "normalize_caret",
   ["Shift+V"] = "select_line",
-  A = "move_visual_right", ["Shift+A"] = "move_logical_line_end", ["Shift+I"] = "move_logical_line_start",
+  A = "append_character", ["Shift+A"] = "move_logical_line_end", ["Shift+I"] = "move_logical_line_start",
   O = "insert_line_below", ["Shift+O"] = "insert_line_above",
-  U = "undo", ["Ctrl+R"] = "redo",
-  X = { "select_visual_right", "yank", "delete_selection" },
-  ["Shift+X"] = { "select_visual_left", "yank", "delete_selection" },
+  U = { "undo", "normalize_caret" }, ["Ctrl+R"] = { "redo", "normalize_caret" },
+  X = { "select_character_forward", "yank", "delete_selection" },
+  ["Shift+X"] = { "select_character_backward", "yank", "delete_selection" },
   P = "put_after", ["Shift+P"] = "put_before", ["Ctrl+C"] = "copy",
   ["D D"] = { "select_line", "yank_lines", "delete_lines" },
   ["C C"] = { "select_line", "yank_lines", "begin_undo_group", "clear_lines", "submit" },
-  ["Y Y"] = { "select_line", "yank_lines", "collapse_selection_start" },
-  ["G G"] = "move_document_start",
+  ["Y Y"] = { "select_line", "yank_lines", "collapse_selection", "normalize_caret" },
+  ["G G"] = "move_normal_document_start",
   ["Shift+D"] = { "select_logical_line_end", "yank", "delete_selection" },
   ["Shift+C"] = { "select_logical_line_end", "yank", "begin_undo_group", "delete_selection", "submit" },
   ["Shift+S"] = { "select_line", "yank_lines", "begin_undo_group", "clear_lines", "submit" },
@@ -66,14 +67,18 @@ M.normal_bindings = {
   ["Y W"] = { "select_vim_word_forward", "yank", "collapse_selection_start" },
 }
 M.visual_bindings = {
-  inherit = false, V = "collapse_selection", Escape = "collapse_selection",
-  ["Shift+V"] = "select_line", ["G G"] = "select_document_start",
+  inherit = false, V = "normalize_caret", Escape = "normalize_caret", O = "swap_selection",
+  ["Shift+V"] = "select_line", ["G G"] = "select_inclusive_document_start",
   Y = { "yank", "collapse_selection_start", "cancel" }, ["Ctrl+C"] = "copy",
   D = { "yank", "delete_selection" }, X = { "yank", "delete_selection" }, C = { "yank", "begin_undo_group", "delete_selection" },
 }
 M.visual_line_bindings = {
-  inherit = false, V = "collapse_selection", ["Shift+V"] = "collapse_selection", Escape = "collapse_selection",
+  inherit = false, V = "select_characters", ["Shift+V"] = "normalize_caret", Escape = "normalize_caret",
   J = "select_lines_down", K = "select_lines_up", Down = "select_lines_down", Up = "select_lines_up",
+  H = "select_lines_left", L = "select_lines_right", Left = "select_lines_left", Right = "select_lines_right",
+  W = "select_lines_word_start_next", B = "select_lines_word_start_previous", E = "select_lines_word_end_next",
+  ["0"] = "select_lines_line_start", ["Shift+4"] = "select_lines_line_end",
+  Home = "select_lines_line_start", End = "select_lines_line_end", O = "select_lines_swap",
   ["G G"] = "select_lines_start", ["Ctrl+Home"] = "select_lines_start", ["Shift+G"] = "select_lines_end",
   Brace_Left = "select_lines_paragraph_previous", ["Shift+Brace_Left"] = "select_lines_paragraph_previous",
   Brace_Right = "select_lines_paragraph_next", ["Shift+Brace_Right"] = "select_lines_paragraph_next",
@@ -81,8 +86,8 @@ M.visual_line_bindings = {
   D = { "yank_lines", "delete_lines" }, X = { "yank_lines", "delete_lines" }, C = { "yank_lines", "begin_undo_group", "clear_lines" },
 }
 for key, destination in pairs(motions) do
-  M.normal_bindings[key] = "move_" .. destination
-  M.visual_bindings[key] = "select_" .. destination
+  M.normal_bindings[key] = "move_normal_" .. destination
+  M.visual_bindings[key] = "select_inclusive_" .. destination
 end
 for keys, object in pairs {
   ["I W"] = "vim_word_inner", ["A W"] = "vim_word_around",
@@ -91,7 +96,7 @@ for keys, object in pairs {
   local select = "select_" .. object
   local paragraph = object:find("paragraph", 1, true)
   local yank = paragraph and "yank_lines" or "yank"
-  M.visual_bindings[keys] = select
+  M.visual_bindings[keys] = { select, "select_characters" }
   M.normal_bindings["D " .. keys] = { select, yank, paragraph and "delete_lines" or "delete_selection" }
   M.normal_bindings["C " .. keys] = { select, yank, "begin_undo_group", paragraph and "clear_lines" or "delete_selection", "submit" }
   M.normal_bindings["Y " .. keys] = { select, yank, "collapse_selection_start" }
@@ -100,7 +105,15 @@ for key, destination in pairs { E = "vim_word_end_next", B = "vim_word_start_pre
   local select = "select_" .. destination
   M.normal_bindings["D " .. key] = { select, "yank", "delete_selection" }
   M.normal_bindings["C " .. key] = { select, "yank", "begin_undo_group", "delete_selection", "submit" }
-  M.normal_bindings["Y " .. key] = { select, "yank", "collapse_selection_start" }
+  M.normal_bindings["Y " .. key] = { select, "yank", "collapse_selection_anchor" }
+end
+-- Deletions return to a character position; changes keep the insertion edge.
+for _, bindings in ipairs { M.normal_bindings, M.visual_bindings, M.visual_line_bindings } do
+  for key, recipe in pairs(bindings) do
+    if key ~= "C" and type(recipe) == "table" and (recipe[#recipe] == "delete_selection" or recipe[#recipe] == "delete_lines") then
+      recipe[#recipe + 1] = "normalize_caret"
+    end
+  end
 end
 local mode_keys = {
   normal = { "V", "Shift+V", "Escape", "A", "Shift+A", "Shift+I", "O", "Shift+O", "Colon", "Shift+Colon" },
@@ -116,7 +129,7 @@ local function page(s, actions, p)
   local inserting = s.mode == "insert"
   local bindings = s.mode == "visual-line" and M.visual_line_bindings
     or s.mode == "visual" and M.visual_bindings
-    or not inserting and M.normal_bindings or { Escape = "collapse_selection" }
+    or not inserting and M.normal_bindings or { Escape = "normalize_caret" }
   local modal
   if s.pending then
     modal = o.dialog { key = "confirm", label = "Unsaved changes", width = 420,
@@ -151,7 +164,7 @@ local function page(s, actions, p)
         background = p.panel, border = c.border, border_width = 1, radius = 8,
         shadow = { x = 0, y = 8, blur = 24, spread = 0, color = p.shadow },
         o.column { key = "body", gap = 12, cross_alignment = "stretch",
-          o.theme { key = "prompt", typography = { family = "monospace", size = 16 },
+          o.theme { key = "prompt", typography = { family = "sans-serif", size = 16 },
             o.row { key = "line", gap = 2, cross_alignment = "center",
               o.text { key = "colon", text = ":", foreground = c.primary },
               o.text_editor { key = "query", label = "Command", text = s.palette.query,
@@ -167,7 +180,9 @@ local function page(s, actions, p)
   return o.box { key = "root", width = "fill", height = "fill",
     commands = actions.commands,
     shortcuts = { ["Ctrl+S"] = "save", ["Ctrl+Shift+S"] = "save_as",
-      ["Ctrl+O"] = "open", ["Ctrl+N"] = "new", ["Ctrl+Q"] = "close" },
+      ["Ctrl+O"] = "open", ["Ctrl+N"] = "new", ["Ctrl+Q"] = "close",
+      ["Ctrl+Equal"] = "font_increase", ["Ctrl+Plus"] = "font_increase", ["Ctrl+Shift+Plus"] = "font_increase",
+      ["Ctrl+Minus"] = "font_decrease", ["Ctrl+0"] = "font_reset" },
     -- A viewport-sized floating child escapes the native window's content
     -- inset, whose color follows only the app theme. The outer layer repaints
     -- that inset in the scheme's palette; the inner layer's zero margin clamps
@@ -187,7 +202,7 @@ local function page(s, actions, p)
               o.box { key = "measure", width = "fill", max_width = 680, height = "fill",
                 on_key = { keys = mode_keys[s.mode], states = { "pressed" }, propagate = true,
                   handler = actions.editor_key },
-                o.theme { key = "prose", typography = { family = "serif", size = 23 },
+                o.theme { key = "prose", typography = { family = "serif", size = s.font_size or M.default_font_size },
                   o.text_editor { key = "draft-" .. d.generation, default_text = d.text, label = "Draft",
                     multiline = true, height = "fill", autofocus = true, focus_request = s.focus,
                     read_only = s.busy or s.pending ~= nil or s.palette ~= nil, text_entry = inserting,

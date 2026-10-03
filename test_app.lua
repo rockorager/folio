@@ -28,12 +28,27 @@ package.preload.ouro = function()
   }
 end
 package.preload.view = function()
-  return { content = function(s, a) return { state = s, actions = a } end }
+  return { default_font_size = 23, content = function(s, a) return { state = s, actions = a } end }
 end
 local app = require("app")
 local window = app.run().windows[1]
 local rendered = window.content()
 local s, a = rendered.state, rendered.actions
+
+assert(s.font_size == 23)
+a.commands.font_increase(); assert(s.font_size == 25)
+a.commands.font_decrease(); assert(s.font_size == 23)
+for _ = 1, 30 do a.commands.font_decrease() end
+assert(s.font_size == 12)
+local at_limit = refreshes
+a.commands.font_decrease(); assert(refreshes == at_limit)
+a.commands.font_reset(); assert(s.font_size == 23)
+for _ = 1, 30 do a.commands.font_increase() end
+assert(s.font_size == 48)
+at_limit = refreshes
+a.commands.font_increase(); assert(refreshes == at_limit)
+a.commands.font_reset(); assert(s.font_size == 23)
+assert(s.mode == "normal" and s.focus == 0 and s.doc.text == "" and not document.dirty(s.doc))
 
 -- Editing retains native state; only dirty/error transitions rebuild the view.
 local before = refreshes

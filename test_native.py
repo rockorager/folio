@@ -146,6 +146,39 @@ def session():
                 identity = editor()["id"]
                 assert not any(n["label"] in ("Open", "Save", "0 words", "Press i. Begin anywhere.") for n in tree()["nodes"])
                 capture("empty")
+
+                def reset_draft(value):
+                    key("escape"); key("n", control=True)
+                    if any(n["label"] == "Unsaved changes" for n in tree()["nodes"]):
+                        click("/buttons/discard")
+                    key("i"); text(value); key("escape"); sequence("gg")
+
+                # Independent Neovim comparisons: end-of-line commands must
+                # operate on the last character, never consume the hard LF.
+                for command, expected, offset in (
+                    ("llxx", "a\ndef", 0), ("llyy", "abc\ndef", 2),
+                    ("llyb", "abc\ndef", 2), ("vd", "bc\ndef", 0),
+                    ("vld", "c\ndef", 0), ("Vvd", "bc\ndef", 0),
+                    ("llvhd", "a\ndef", 0),
+                ):
+                    reset_draft("abc\ndef"); sequence(command)
+                    assert editor()["value"] == expected, (command, editor())
+                    assert editor()["selection"]["extent"] == offset, (command, editor())
+                for command, expected in (("x", "ab\ndef"), ("az", "abcz\ndef")):
+                    reset_draft("abc\ndef")
+                    subprocess.run(["wtype", "-s", "100", "-M", "shift", "-k", "4", "-m", "shift"], env=env, check=True)
+                    wait_for(lambda: editor()["selection"]["extent"] == 2, "$ must land on c")
+                    sequence(command)
+                    assert editor()["value"] == expected, (command, editor())
+                reset_draft("abc\ndef"); sequence("llvho")
+                assert selected() == "bc" and editor()["selection"]["character_caret"]["extent"] == 2
+                capture("inclusive-visual")
+                key("escape")
+                assert editor()["selection"]["extent"] == 2
+                sequence("gg")
+                subprocess.run(["wtype", "-s", "100", "-P", "x", "-s", "1200", "-p", "x"], env=env, check=True)
+                wait_for(lambda: editor()["value"] == "\ndef", "held x must repeat and stop before LF")
+                reset_draft("")
                 # Regression: an empty row must not hit the insertion offset
                 # after its LF, which belongs to the following row.
                 key("i"); key("enter"); key("escape"); key("k"); key("i"); text("foo")
@@ -166,6 +199,42 @@ def session():
                 assert editor()["value"] == "alpha βeta\nsecond line"
                 assert builds() == before_typing + 1, "typing must only rebuild for the dirty marker"
                 assert filename().endswith("•")
+
+                def font_key(name, shift=False):
+                    args = ["wtype", "-s", "100", "-M", "ctrl"]
+                    if shift: args += ["-M", "shift"]
+                    args += ["-k", name]
+                    if shift: args += ["-m", "shift"]
+                    subprocess.run(args + ["-m", "ctrl"], env=env, check=True)
+                    time.sleep(.15)
+
+                # Real punctuation keysyms, including Shift+plus, must change
+                # only the prose scale, retaining selection, identity and undo.
+                original = editor()
+                default_height = original["caret_bounds"]["height"]
+                capture("font-default")
+                font_key("minus")
+                assert editor()["caret_bounds"]["height"] < default_height, "Ctrl+- did not shrink prose"
+                capture("font-smaller")
+                font_key("0")
+                assert editor()["caret_bounds"]["height"] == default_height
+                for name, shift in (("equal", False), ("plus", False), ("plus", True)):
+                    height = editor()["caret_bounds"]["height"]
+                    font_key(name, shift)
+                    assert editor()["caret_bounds"]["height"] > height, (name, shift, editor())
+                    assert editor()["selection"] == original["selection"] and editor()["value"] == original["value"]
+                    assert editor()["id"] == identity and editor()["text_entry"]
+                capture("font-larger")
+                font_key("0")
+                assert editor()["caret_bounds"] == original["caret_bounds"], "Ctrl+0 did not restore default geometry"
+                # Enter separates the two native typing runs.
+                key("z", control=True); assert editor()["value"] == "alpha βeta\n", "font resizing changed undo history"
+                key("z", control=True, shift=True)
+                assert editor()["value"] == original["value"]
+                key("escape"); key("v", shift=True)
+                line_selection = editor()["selection"]
+                font_key("equal"); font_key("0")
+                assert editor()["selection"] == line_selection, "font resizing lost Visual-line endpoints"
                 key("escape")
                 assert not editor()["text_entry"]
                 palette()
@@ -183,7 +252,7 @@ def session():
                 assert any(n["label"] == "Unsaved changes" for n in tree()["nodes"])
                 key("escape")
                 assert editor()["value"] == "alpha βeta\nsecond line"
-                key("i")
+                key("a")
                 subprocess.run(["wtype", "-s", "100", ":"], env=env, check=True)
                 wait_for(lambda: editor()["value"].endswith(":"), "Insert colon was not typed")
                 key("z", control=True); key("escape")
@@ -217,10 +286,10 @@ def session():
                 key("z", control=True)
                 key("escape"); key("home", control=True)
                 subprocess.run(["wtype", "-s", "100", "-M", "shift", "-k", "4", "-m", "shift"], env=env, check=True)
-                wait_for(lambda: editor()["selection"]["extent"] == len("alpha βeta".encode()),
+                wait_for(lambda: editor()["selection"]["extent"] == len("alpha βet".encode()),
                          "physical $ did not reach the line end")
                 key("i"); text("S")
-                assert editor()["value"] == "alpha βetaS\nsecond line", editor()
+                assert editor()["value"] == "alpha βetSa\nsecond line", editor()
                 key("z", control=True)
 
                 # Native selection and Unicode deletion remain intact in Insert.
@@ -271,15 +340,15 @@ def session():
                 # multi-byte selection. Replacing it must use native undo history.
                 key("home", control=True); key("w"); key("v"); key("l")
                 assert any(n["label"] == "VISUAL" for n in tree()["nodes"])
-                assert editor()["selection"]["anchor"] == 6 and editor()["selection"]["extent"] == 8, editor()
+                assert editor()["selection"]["anchor"] == 6 and editor()["selection"]["extent"] == 9, editor()
                 capture("visual-forward")
                 subprocess.run(["wtype", "-s", "100", "y"], env=env, check=True)
                 key("escape"); key("g", shift=True); key("p")
-                wait_for(lambda: editor()["value"] == before + "β", "Visual copy / Normal paste failed")
+                wait_for(lambda: editor()["value"] == before + "βe", "Visual copy / Normal paste failed")
                 key("u"); assert editor()["value"] == before
                 key("home", control=True); key("w"); key("v"); key("l")
                 key("c"); text("Z")
-                assert editor()["value"] == "alpha Zeta\nsecond line", editor()
+                assert editor()["value"] == "alpha Zta\nsecond line", editor()
                 key("z", control=True)
                 assert editor()["value"] == before
                 key("escape"); key("g", shift=True); key("v"); key("b")
@@ -291,10 +360,10 @@ def session():
                 assert editor()["value"] == before
                 assert editor()["selection"]["anchor"] == editor()["selection"]["extent"] == len("alpha βeta\nsecond ".encode()), editor()
                 key("home", control=True); key("v"); key("w"); key("d")
-                assert editor()["value"] == "βeta\nsecond line" and not editor()["text_entry"], editor()
+                assert editor()["value"] == "eta\nsecond line" and not editor()["text_entry"], editor()
                 key("u"); assert editor()["value"] == before
                 key("home", control=True); key("v"); key("w"); key("c"); text("New")
-                assert editor()["value"] == "Newβeta\nsecond line" and editor()["text_entry"], editor()
+                assert editor()["value"] == "Neweta\nsecond line" and editor()["text_entry"], editor()
                 key("escape"); key("u"); assert editor()["value"] == before
                 assert editor()["id"] == identity, "mode changes or native edits remounted the editor"
 
@@ -443,7 +512,7 @@ def session():
                 sequence("gg}")
                 assert editor()["selection"]["extent"] == len("First paragraph.\nAnother hard line.\n"), editor()
                 sequence("}")
-                assert editor()["selection"]["extent"] == len(paragraphs), editor()
+                assert editor()["selection"]["extent"] == len(paragraphs) - 1, editor()
                 sequence("{")
                 assert editor()["selection"]["extent"] == len("First paragraph.\nAnother hard line.\n\n"), editor()
                 sequence("ggjVj")
@@ -465,25 +534,63 @@ def session():
                 wait_for(lambda: editor()["value"] == paragraphs + "\nFirst paragraph.\nAnother hard line.", "Visual-line yank/put failed")
                 key("u"); assert editor()["value"] == paragraphs
 
+                # Neovim keeps a separate active cursor while V selects whole
+                # lines: ggllllVjj retains column 4 across a short middle row.
+                line_fixture = "alpha bravo\nxy\ncharlie delta\n\nlast"
+                opened.write_text(line_fixture)
+                key("o", control=True)
+                wait_for(lambda: editor()["value"] == line_fixture, "line cursor fixture did not load")
+                sequence("ggllll")
+                original_caret = editor()["caret_bounds"]
+                sequence("V")
+                assert selected() == "alpha bravo\n", editor()
+                assert editor()["caret_bounds"] == original_caret, "V moved the cursor to the selection end"
+                sequence("j")
+                assert editor()["selection"]["line_caret"]["extent"] == 14, editor()
+                sequence("j")
+                assert editor()["selection"]["line_caret"]["extent"] == 19, editor()
+                sequence("h")
+                assert editor()["selection"]["line_caret"]["extent"] == 18, editor()
+                assert selected() == "alpha bravo\nxy\ncharlie delta\n", editor()
+                capture("visual-line-cursor")
+                sequence("v")
+                assert selected() == "a bravo\nxy\nchar", "V to v lost its character endpoints"
+                assert any(n["label"] == "VISUAL" for n in tree()["nodes"])
+                sequence("Vo")
+                assert editor()["selection"]["line_caret"]["extent"] == 4, editor()
+                sequence("v")
+                assert selected() == "a bravo\nxy\nchar", "reverse V to v lost its anchor"
+                sequence("V")
+                key("escape")
+                assert editor()["selection"]["extent"] == 4, "Escape used a whole-line bound instead of the active cursor"
+                sequence("V")
+                key("v", shift=True)
+                assert editor()["selection"]["extent"] == 4, "V toggle moved the cursor"
+                sequence("Vw")
+                assert editor()["selection"]["line_caret"]["extent"] == 6, editor()
+                sequence("bj")
+                assert editor()["selection"]["line_caret"]["extent"] == 12, editor()
+                key("escape")
+
                 # Selection must follow graphemes, not UTF-8 bytes or codepoints.
                 graphemes = "A e\u0301 👩‍💻 Z\nShort"
                 opened.write_text(graphemes)
                 key("o", control=True)
                 wait_for(lambda: editor()["value"] == graphemes, "grapheme fixture did not load")
                 key("home", control=True); key("l"); key("l"); key("v"); key("l")
-                assert editor()["selection"]["anchor"] == 2 and editor()["selection"]["extent"] == 5, editor()
+                assert editor()["selection"]["anchor"] == 2 and editor()["selection"]["extent"] == 6, editor()
                 key("h"); key("h")  # Shrink to the anchor, then reverse over the space.
-                assert editor()["selection"]["anchor"] == 2 and editor()["selection"]["extent"] == 1, editor()
+                assert editor()["selection"]["anchor"] == 5 and editor()["selection"]["extent"] == 1, editor()
                 key("c"); text("X")
-                assert editor()["value"] == "AXe\u0301 👩‍💻 Z\nShort", editor()
+                assert editor()["value"] == "AX 👩‍💻 Z\nShort", editor()
                 key("z", control=True)
                 assert editor()["value"] == graphemes
                 key("escape"); key("home", control=True)
                 for _ in range(4): key("l")
                 key("v"); key("l")
-                assert editor()["selection"]["anchor"] == 6 and editor()["selection"]["extent"] == 17, editor()
+                assert editor()["selection"]["anchor"] == 6 and editor()["selection"]["extent"] == 18, editor()
                 key("c"); text("Q")
-                assert editor()["value"] == "A e\u0301 Q Z\nShort", editor()
+                assert editor()["value"] == "A e\u0301 QZ\nShort", editor()
                 key("z", control=True)
                 assert editor()["value"] == graphemes
 
@@ -504,6 +611,15 @@ def session():
                 assert editor()["value"] == "Before\n" + wrapped + "\nTail", "O split a wrapped visual line"
                 key("escape"); key("u"); key("u")
 
+                sequence("gg")
+                key("end")
+                wrap_caret = editor()["caret_bounds"]
+                assert editor()["selection"]["extent_affinity"] == "upstream", editor()
+                sequence("V")
+                assert editor()["caret_bounds"] == wrap_caret, "V moved the upstream wrap-edge cursor to the next row"
+                capture("visual-line-wrap-edge")
+                key("escape")
+                assert editor()["caret_bounds"] == wrap_caret, "Escape lost wrap-edge affinity"
                 sequence("ggjV")
                 assert selected() == wrapped + "\n", "Visual-line selected only one wrapped row"
                 sequence("j")

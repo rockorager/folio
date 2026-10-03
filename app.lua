@@ -3,7 +3,7 @@ local document = require("document")
 local view = require("view")
 local commands = require("commands")
 local changed = o.signal(0)
-local s = { doc = document.new(), mode = "normal", focus = 0, busy = false }
+local s = { doc = document.new(), mode = "normal", focus = 0, busy = false, font_size = view.default_font_size }
 local actions = { commands = {} }
 local filters = { { name = "Plain text", patterns = { "*.txt", "*.md", "*.markdown" } } }
 
@@ -140,6 +140,14 @@ actions.commands.save_quit = function() if save(false) then perform("close") end
 actions.commands.open = function() request("open") end
 actions.commands.new = function() request("new") end
 actions.commands.close = function() request("close") end
+
+local function font_size(size)
+  size = math.max(12, math.min(48, size))
+  if size ~= s.font_size then s.font_size = size; refresh() end
+end
+actions.commands.font_increase = function() font_size(s.font_size + 2) end
+actions.commands.font_decrease = function() font_size(s.font_size - 2) end
+actions.commands.font_reset = function() font_size(view.default_font_size) end
 
 return o.app {
   id = "dev.rockorager.folio", theme = view.theme,
